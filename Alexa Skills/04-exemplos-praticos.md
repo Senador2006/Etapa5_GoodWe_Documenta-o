@@ -1,20 +1,28 @@
-# Exemplos Práticos de Alexa Skills
+# Exemplos Práticos de Alexa Skills - Node.js
 
-## Projeto Completo: Assistente de Energia Solar
+## Projeto Completo: Assistente de Energia Solar (Node.js)
 
-Este arquivo contém exemplos práticos completos para implementar uma Alexa Skill para monitoramento de energia solar.
+Este arquivo contém exemplos práticos completos para implementar uma Alexa Skill para monitoramento de energia solar usando Node.js e o ASK SDK v2.
 
 ## 1. Estrutura Completa do Projeto
 
 ```
-alexa-energy-skill/
+alexa-energy-skill-nodejs/
 ├── lambda/
-│   ├── requirements.txt
-│   ├── lambda_function.py
-│   └── utils/
-│       ├── api_client.py
-│       ├── response_builder.py
-│       └── data_formatter.py
+│   ├── package.json
+│   ├── index.js
+│   ├── handlers/
+│   │   ├── launchRequestHandler.js
+│   │   ├── energyHandlers.js
+│   │   ├── deviceHandlers.js
+│   │   └── builtInHandlers.js
+│   ├── utils/
+│   │   ├── apiClient.js
+│   │   ├── responseBuilder.js
+│   │   └── dataFormatter.js
+│   └── interceptors/
+│       ├── requestInterceptor.js
+│       └── responseInterceptor.js
 ├── skill-package/
 │   ├── interactionModels/
 │   │   └── custom/
@@ -219,500 +227,295 @@ requests==2.28.0
 boto3==1.26.0
 ```
 
-### lambda/utils/api_client.py
-```python
-import os
-import requests
-import logging
-from typing import Dict, Optional, Any
+> 💡 **Implementação em Node.js**: Todo o código está disponível de forma detalhada no arquivo [`05-codigo-nodejs-completo.md`](./05-codigo-nodejs-completo.md), incluindo todas as classes, handlers e configurações necessárias.
 
-logger = logging.getLogger(__name__)
+```
 
-class GoodWeAPIClient:
-    def __init__(self):
-        self.base_url = os.environ.get('API_BASE_URL', 'https://api.goodwe.com/v1')
-        self.api_key = os.environ.get('GOODWE_API_KEY')
-        self.timeout = 10
-        
-    def _make_request(self, endpoint: str, params: Optional[Dict] = None) -> Optional[Dict]:
-        """Faz requisição para a API"""
-        try:
-            headers = {
-                'Authorization': f'Bearer {self.api_key}',
-                'Content-Type': 'application/json'
+## 3. Código Node.js Completo
+
+> 📋 **Nota**: O código completo está disponível no arquivo [`05-codigo-nodejs-completo.md`](./05-codigo-nodejs-completo.md). Aqui está um resumo da estrutura e componentes principais.
+
+### Estrutura Resumida do Projeto
+```
+alexa-energy-skill-nodejs/
+├── package.json              # Dependências e scripts
+├── index.js                  # Arquivo principal
+├── handlers/                 # Manipuladores de intents
+│   ├── launchRequestHandler.js
+│   ├── energyHandlers.js
+│   ├── deviceHandlers.js
+│   └── builtInHandlers.js
+├── utils/                    # Utilitários
+│   ├── apiClient.js         # Cliente para API GoodWe
+│   ├── dataFormatter.js     # Formatação de dados
+│   └── responseBuilder.js   # Construção de respostas
+└── interceptors/            # Interceptadores
+    ├── requestInterceptor.js
+    └── responseInterceptor.js
+```
+
+### Principais Dependências
+```json
+{
+  "dependencies": {
+    "ask-sdk-core": "^2.13.0",
+    "ask-sdk-model": "^1.49.0", 
+    "axios": "^1.6.0",
+    "moment": "^2.29.4"
+  }
+}
+```
+
+### Componentes Principais
+
+#### 1. **API Client** (utils/apiClient.js)
+- Gerencia chamadas para a API GoodWe
+- Tratamento de erros e timeouts
+- Logging automático de requisições
+
+#### 2. **Data Formatter** (utils/dataFormatter.js)
+- Formatação de valores de energia, moeda e percentuais
+- Normalização de períodos de tempo
+- Extração de valores de slots
+
+#### 3. **Response Builder** (utils/responseBuilder.js)
+- Construção de respostas padronizadas
+- Tratamento de erros
+- Geração de cards para dispositivos com tela
+
+#### 4. **Handlers** (handlers/)
+- **Energy Handlers**: Consumo, produção e economias
+- **Device Handlers**: Status de dispositivos e impacto climático  
+- **Built-in Handlers**: Ajuda, cancelar, parar
+
+#### 5. **Interceptors** (interceptors/)
+- **Request**: Logging detalhado de requisições
+- **Response**: Métricas e logging de respostas
+
+### Exemplo de Handler Simplificado
+```javascript
+const GetEnergyConsumptionHandler = {
+    canHandle(handlerInput) {
+        return handlerInput.requestEnvelope.request.type === 'IntentRequest'
+            && handlerInput.requestEnvelope.request.intent.name === 'GetEnergyConsumptionIntent';
+    },
+    
+    async handle(handlerInput) {
+        try {
+            // Extrair período do slot
+            const timeFrame = DataFormatter.extractSlotValue(
+                handlerInput.requestEnvelope.request.intent.slots.timeFrame
+            );
+            
+            // Buscar dados na API
+            const data = await apiClient.getEnergyConsumption(timeFrame);
+            
+            // Formatar resposta
+            const formattedResponse = DataFormatter.formatEnergyValue(
+                data.total_consumption, data.unit
+            );
+            
+            const speechText = `O consumo foi de ${formattedResponse}.`;
+            
+            return ResponseBuilder.buildResponse(handlerInput, speechText);
+            
+        } catch (error) {
+            return ResponseBuilder.buildErrorResponse(handlerInput, 'api_error');
+        }
+    }
+};
+```
+
+### Arquivo Principal (index.js)
+```javascript
+const Alexa = require('ask-sdk-core');
+
+// Importar todos os handlers
+const handlers = [...]; 
+
+// Configurar skill
+exports.handler = Alexa.SkillBuilders.custom()
+    .addRequestHandlers(...handlers)
+    .addErrorHandlers(ErrorHandler)
+    .addRequestInterceptors(RequestInterceptor)
+    .addResponseInterceptors(ResponseInterceptor)
+    .lambda();
+```
+
+## 4. Configuração de Ambiente e Testes
+
+### Variáveis de Ambiente
+```javascript
+// Configurar no AWS Lambda Console ou via CLI
+const environmentVariables = {
+    GOODWE_API_KEY: 'sua_chave_api_aqui',
+    API_BASE_URL: 'https://api.goodwe.com/v1',
+    LOG_LEVEL: 'INFO'
+};
+```
+
+### Servidor de Testes Local
+```javascript
+// tests/mockServer.js
+const express = require('express');
+const app = express();
+
+app.use(express.json());
+
+// Mock data
+const mockData = {
+    consumption: {
+        today: { total_consumption: 25.5, unit: 'kWh' },
+        yesterday: { total_consumption: 28.2, unit: 'kWh' },
+        this_week: { total_consumption: 180.3, unit: 'kWh' }
+    },
+    production: {
+        today: { total_production: 45.2, unit: 'kWh', efficiency: 92.5 },
+        yesterday: { total_production: 48.1, unit: 'kWh', efficiency: 94.2 }
+    },
+    devices: {
+        inverter: { 
+            status: 'operacional', 
+            current_power: 1200, 
+            efficiency: 95.2 
+        },
+        battery: { 
+            status: 'carregando', 
+            charge_level: 85, 
+            charge_status: 'carregando' 
+        },
+        system: {
+            status: 'operacional',
+            summary: {
+                generation: 1200,
+                consumption: 800,
+                battery_level: 85
             }
-            
-            url = f"{self.base_url}/{endpoint}"
-            response = requests.get(url, headers=headers, params=params, timeout=self.timeout)
-            
-            if response.status_code == 200:
-                return response.json()
-            elif response.status_code == 404:
-                logger.warning(f"Resource not found: {endpoint}")
-                return None
-            else:
-                logger.error(f"API Error: {response.status_code} - {response.text}")
-                return None
-                
-        except requests.exceptions.Timeout:
-            logger.error("API request timeout")
-            return None
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Request failed: {str(e)}")
-            return None
-        except Exception as e:
-            logger.error(f"Unexpected error: {str(e)}")
-            return None
-    
-    def get_energy_consumption(self, time_frame: str = 'today') -> Optional[Dict]:
-        """Obter dados de consumo de energia"""
-        params = {'period': time_frame, 'metric': 'consumption'}
-        return self._make_request('energy/consumption', params)
-    
-    def get_energy_production(self, time_frame: str = 'today') -> Optional[Dict]:
-        """Obter dados de produção de energia"""
-        params = {'period': time_frame, 'metric': 'production'}
-        return self._make_request('energy/production', params)
-    
-    def get_device_status(self, device_type: str = 'system') -> Optional[Dict]:
-        """Obter status de dispositivos"""
-        device_endpoints = {
-            'inversor': 'devices/inverter',
-            'painel solar': 'devices/solar-panels',
-            'bateria': 'devices/battery',
-            'sistema': 'devices/system-status'
         }
-        
-        endpoint = device_endpoints.get(device_type, 'devices/system-status')
-        return self._make_request(endpoint)
-    
-    def get_savings(self, time_frame: str = 'today') -> Optional[Dict]:
-        """Obter dados de economia"""
-        params = {'period': time_frame}
-        return self._make_request('financial/savings', params)
-    
-    def get_weather_impact(self) -> Optional[Dict]:
-        """Obter impacto climático na geração"""
-        return self._make_request('weather/impact')
+    }
+};
+
+// Endpoints
+app.get('/v1/energy/consumption', (req, res) => {
+    const period = req.query.period || 'today';
+    const data = mockData.consumption[period] || mockData.consumption.today;
+    res.json({ data });
+});
+
+app.get('/v1/energy/production', (req, res) => {
+    const period = req.query.period || 'today';
+    const data = mockData.production[period] || mockData.production.today;
+    res.json({ data });
+});
+
+app.get('/v1/devices/:type', (req, res) => {
+    const type = req.params.type.replace('-', '');
+    const data = mockData.devices[type] || mockData.devices.system;
+    res.json({ data });
+});
+
+app.get('/v1/financial/savings', (req, res) => {
+    res.json({ 
+        data: { 
+            total_savings: 45.80, 
+            currency: 'R$',
+            energy_offset: 65.2
+        } 
+    });
+});
+
+app.get('/v1/weather/impact', (req, res) => {
+    res.json({ 
+        data: { 
+            condition: 'favoráveis', 
+            impact_percentage: 92.5,
+            forecast: 'sol durante o dia'
+        } 
+    });
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`Mock server running on port ${PORT}`);
+});
+
+module.exports = app;
 ```
 
-### lambda/utils/data_formatter.py
-```python
-from typing import Dict, Any
-
-class DataFormatter:
-    
-    @staticmethod
-    def format_time_frame(time_frame: str) -> str:
-        """Formata período para resposta em português"""
-        mappings = {
-            'today': 'hoje',
-            'yesterday': 'ontem',
-            'this_week': 'esta semana',
-            'last_week': 'na semana passada',
-            'this_month': 'este mês',
-            'last_month': 'no mês passado'
-        }
-        return mappings.get(time_frame, time_frame)
-    
-    @staticmethod
-    def normalize_time_frame(time_value: str) -> str:
-        """Normaliza entrada de tempo para formato da API"""
-        if not time_value:
-            return 'today'
-            
-        mappings = {
-            'hoje': 'today',
-            'ontem': 'yesterday',
-            'esta semana': 'this_week',
-            'semana passada': 'last_week',
-            'este mês': 'this_month',
-            'mês passado': 'last_month'
-        }
-        return mappings.get(time_value.lower(), 'today')
-    
-    @staticmethod
-    def format_energy_value(value: float, unit: str = 'kWh') -> str:
-        """Formata valores de energia"""
-        if value >= 1000:
-            return f"{value/1000:.1f} MW{unit[2:]}"
-        elif value >= 1:
-            return f"{value:.1f} {unit}"
-        else:
-            return f"{value*1000:.0f} W{unit[2:]}"
-    
-    @staticmethod
-    def format_currency(value: float, currency: str = 'R$') -> str:
-        """Formata valores monetários"""
-        return f"{currency} {value:.2f}".replace('.', ',')
-    
-    @staticmethod
-    def format_percentage(value: float) -> str:
-        """Formata percentuais"""
-        return f"{value:.1f}%"
+### Scripts de Teste
+```json
+// package.json - scripts adicionais
+{
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "mock-server": "node tests/mockServer.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "deploy": "ask deploy",
+    "simulate": "ask simulate -l pt-BR"
+  }
+}
 ```
 
-### lambda/utils/response_builder.py
-```python
-from ask_sdk_core.handler_input import HandlerInput
-from ask_sdk_model import Response
-from ask_sdk_model.ui import SimpleCard
+### Comandos de Teste
+```bash
+# Instalar dependências
+npm install
 
-class ResponseBuilder:
-    
-    @staticmethod
-    def build_response(handler_input: HandlerInput, speech_text: str, 
-                      card_title: str = None, card_content: str = None,
-                      should_end_session: bool = True) -> Response:
-        """Constrói resposta padrão"""
-        response_builder = handler_input.response_builder.speak(speech_text)
-        
-        if card_title and card_content:
-            response_builder.set_card(SimpleCard(card_title, card_content))
-        
-        if should_end_session:
-            response_builder.set_should_end_session(True)
-        else:
-            response_builder.ask(speech_text)
-            
-        return response_builder.response
-    
-    @staticmethod
-    def build_error_response(handler_input: HandlerInput, error_type: str = 'general') -> Response:
-        """Constrói resposta de erro"""
-        error_messages = {
-            'api_error': 'Desculpe, não consegui acessar os dados no momento. Tente novamente mais tarde.',
-            'no_data': 'Não encontrei dados para o período solicitado.',
-            'invalid_device': 'Não reconheci o dispositivo mencionado. Tente inversor, painel solar, bateria ou sistema.',
-            'general': 'Ocorreu um erro inesperado. Tente novamente mais tarde.'
-        }
-        
-        speech_text = error_messages.get(error_type, error_messages['general'])
-        return ResponseBuilder.build_response(handler_input, speech_text)
-    
-    @staticmethod
-    def build_help_response(handler_input: HandlerInput) -> Response:
-        """Constrói resposta de ajuda"""
-        speech_text = """
-        Eu posso te ajudar a monitorar seu sistema de energia solar. Você pode perguntar:
-        
-        "Qual o consumo de energia hoje?"
-        "Como está o inversor?"
-        "Quanta energia foi gerada esta semana?"
-        "Quanto economizei este mês?"
-        
-        O que você gostaria de saber?
-        """
-        
-        return ResponseBuilder.build_response(
-            handler_input, 
-            speech_text, 
-            should_end_session=False
-        )
+# Executar servidor mock para testes
+npm run mock-server
+
+# Executar testes unitários
+npm test
+
+# Deploy da skill
+npm run deploy
+
+# Simular interações
+ask simulate -l pt-BR -t "abra assistente energia"
+ask simulate -l pt-BR -t "qual o consumo de energia hoje"
+ask simulate -l pt-BR -t "como está o inversor"
 ```
-
-### lambda/lambda_function.py
-```python
-import logging
-from ask_sdk_core.skill_builder import SkillBuilder
-from ask_sdk_core.dispatch_components import AbstractRequestHandler, AbstractExceptionHandler
-from ask_sdk_core.utils import is_request_type, is_intent_name
-from ask_sdk_core.handler_input import HandlerInput
-from ask_sdk_model import Response
-
-from utils.api_client import GoodWeAPIClient
-from utils.data_formatter import DataFormatter
-from utils.response_builder import ResponseBuilder
-
-# Configuração de logging
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
-# Inicializar cliente da API
-api_client = GoodWeAPIClient()
-
-sb = SkillBuilder()
-
-# Handler para Launch Request
-@sb.request_handler(can_handle_func=is_request_type("LaunchRequest"))
-def launch_request_handler(handler_input):
-    speech_text = """
-    Olá! Bem-vindo ao seu assistente de energia solar. 
-    Eu posso te ajudar a monitorar consumo, produção, status dos dispositivos e economias.
-    O que você gostaria de saber?
-    """
-    
-    return ResponseBuilder.build_response(
-        handler_input, 
-        speech_text, 
-        should_end_session=False
-    )
-
-# Handler para Consumo de Energia
-@sb.request_handler(can_handle_func=is_intent_name("GetEnergyConsumptionIntent"))
-def get_energy_consumption_handler(handler_input):
-    try:
-        # Extrair slot
-        slots = handler_input.request_envelope.request.intent.slots
-        time_frame_slot = slots.get("timeFrame", {})
-        time_frame_raw = time_frame_slot.value if time_frame_slot else None
-        
-        # Normalizar período
-        time_frame = DataFormatter.normalize_time_frame(time_frame_raw)
-        
-        # Buscar dados na API
-        consumption_data = api_client.get_energy_consumption(time_frame)
-        
-        if consumption_data and 'data' in consumption_data:
-            data = consumption_data['data']
-            consumption = data.get('total_consumption', 0)
-            unit = data.get('unit', 'kWh')
-            
-            # Formatar resposta
-            formatted_period = DataFormatter.format_time_frame(time_frame)
-            formatted_consumption = DataFormatter.format_energy_value(consumption, unit)
-            
-            speech_text = f"O consumo de energia {formatted_period} foi de {formatted_consumption}."
-            
-            # Adicionar comparação se disponível
-            if 'comparison' in data:
-                comparison = data['comparison']
-                percentage = DataFormatter.format_percentage(comparison['percentage'])
-                trend = "maior" if comparison['percentage'] > 0 else "menor"
-                speech_text += f" Isso é {percentage} {trend} que o período anterior."
-            
-            card_title = "Consumo de Energia"
-            card_content = f"Período: {formatted_period}\\nConsumo: {formatted_consumption}"
-            
-            return ResponseBuilder.build_response(
-                handler_input, speech_text, card_title, card_content
-            )
-        else:
-            return ResponseBuilder.build_error_response(handler_input, 'no_data')
-            
-    except Exception as e:
-        logger.error(f"Error in consumption handler: {str(e)}")
-        return ResponseBuilder.build_error_response(handler_input, 'api_error')
-
-# Handler para Produção de Energia
-@sb.request_handler(can_handle_func=is_intent_name("GetEnergyProductionIntent"))
-def get_energy_production_handler(handler_input):
-    try:
-        # Extrair slot
-        slots = handler_input.request_envelope.request.intent.slots
-        time_frame_slot = slots.get("timeFrame", {})
-        time_frame_raw = time_frame_slot.value if time_frame_slot else None
-        
-        # Normalizar período
-        time_frame = DataFormatter.normalize_time_frame(time_frame_raw)
-        
-        # Buscar dados na API
-        production_data = api_client.get_energy_production(time_frame)
-        
-        if production_data and 'data' in production_data:
-            data = production_data['data']
-            production = data.get('total_production', 0)
-            unit = data.get('unit', 'kWh')
-            
-            # Formatar resposta
-            formatted_period = DataFormatter.format_time_frame(time_frame)
-            formatted_production = DataFormatter.format_energy_value(production, unit)
-            
-            speech_text = f"A produção de energia {formatted_period} foi de {formatted_production}."
-            
-            # Adicionar eficiência se disponível
-            if 'efficiency' in data:
-                efficiency = DataFormatter.format_percentage(data['efficiency'])
-                speech_text += f" A eficiência dos painéis foi de {efficiency}."
-            
-            return ResponseBuilder.build_response(handler_input, speech_text)
-        else:
-            return ResponseBuilder.build_error_response(handler_input, 'no_data')
-            
-    except Exception as e:
-        logger.error(f"Error in production handler: {str(e)}")
-        return ResponseBuilder.build_error_response(handler_input, 'api_error')
-
-# Handler para Status de Dispositivos
-@sb.request_handler(can_handle_func=is_intent_name("GetDeviceStatusIntent"))
-def get_device_status_handler(handler_input):
-    try:
-        # Extrair slot
-        slots = handler_input.request_envelope.request.intent.slots
-        device_slot = slots.get("deviceType", {})
-        device_type = device_slot.value if device_slot else "sistema"
-        
-        # Buscar status na API
-        status_data = api_client.get_device_status(device_type)
-        
-        if status_data and 'data' in status_data:
-            data = status_data['data']
-            status = data.get('status', 'desconhecido')
-            
-            # Formatar resposta baseada no tipo de dispositivo
-            if device_type == "inversor":
-                power = data.get('current_power', 0)
-                efficiency = data.get('efficiency', 0)
-                speech_text = f"O inversor está {status}. Potência atual: {power} watts, eficiência: {DataFormatter.format_percentage(efficiency)}."
-                
-            elif device_type == "painel solar":
-                generation = data.get('current_generation', 0)
-                weather_factor = data.get('weather_factor', 0)
-                speech_text = f"Os painéis solares estão {status}. Geração atual: {generation} watts. Fator climático: {DataFormatter.format_percentage(weather_factor)}."
-                
-            elif device_type == "bateria":
-                charge_level = data.get('charge_level', 0)
-                charge_status = data.get('charge_status', 'parado')
-                speech_text = f"A bateria está {status} com {DataFormatter.format_percentage(charge_level)} de carga. Status: {charge_status}."
-                
-            else:  # sistema completo
-                speech_text = f"O sistema está {status}."
-                if 'summary' in data:
-                    summary = data['summary']
-                    generation = summary.get('generation', 0)
-                    consumption = summary.get('consumption', 0)
-                    speech_text += f" Geração atual: {generation} watts, consumo: {consumption} watts."
-            
-            return ResponseBuilder.build_response(handler_input, speech_text)
-        else:
-            return ResponseBuilder.build_error_response(handler_input, 'no_data')
-            
-    except Exception as e:
-        logger.error(f"Error in device status handler: {str(e)}")
-        return ResponseBuilder.build_error_response(handler_input, 'api_error')
-
-# Handler para Economias
-@sb.request_handler(can_handle_func=is_intent_name("GetSavingsIntent"))
-def get_savings_handler(handler_input):
-    try:
-        # Extrair slot
-        slots = handler_input.request_envelope.request.intent.slots
-        time_frame_slot = slots.get("timeFrame", {})
-        time_frame_raw = time_frame_slot.value if time_frame_slot else None
-        
-        # Normalizar período
-        time_frame = DataFormatter.normalize_time_frame(time_frame_raw)
-        
-        # Buscar dados na API
-        savings_data = api_client.get_savings(time_frame)
-        
-        if savings_data and 'data' in savings_data:
-            data = savings_data['data']
-            savings_amount = data.get('total_savings', 0)
-            currency = data.get('currency', 'R$')
-            
-            # Formatar resposta
-            formatted_period = DataFormatter.format_time_frame(time_frame)
-            formatted_savings = DataFormatter.format_currency(savings_amount, currency)
-            
-            speech_text = f"Você economizou {formatted_savings} {formatted_period}."
-            
-            # Adicionar detalhes se disponível
-            if 'energy_offset' in data:
-                energy_offset = DataFormatter.format_percentage(data['energy_offset'])
-                speech_text += f" Isso representa {energy_offset} da sua conta de energia."
-            
-            return ResponseBuilder.build_response(handler_input, speech_text)
-        else:
-            return ResponseBuilder.build_error_response(handler_input, 'no_data')
-            
-    except Exception as e:
-        logger.error(f"Error in savings handler: {str(e)}")
-        return ResponseBuilder.build_error_response(handler_input, 'api_error')
-
-# Handler para Impacto Climático
-@sb.request_handler(can_handle_func=is_intent_name("GetWeatherImpactIntent"))
-def get_weather_impact_handler(handler_input):
-    try:
-        # Buscar dados na API
-        weather_data = api_client.get_weather_impact()
-        
-        if weather_data and 'data' in weather_data:
-            data = weather_data['data']
-            weather_condition = data.get('condition', 'desconhecida')
-            impact_percentage = data.get('impact_percentage', 0)
-            
-            formatted_impact = DataFormatter.format_percentage(impact_percentage)
-            
-            speech_text = f"As condições climáticas estão {weather_condition}. "
-            speech_text += f"O impacto na geração de energia é de {formatted_impact}."
-            
-            # Adicionar previsão se disponível
-            if 'forecast' in data:
-                forecast = data['forecast']
-                speech_text += f" Para as próximas horas, espera-se {forecast}."
-            
-            return ResponseBuilder.build_response(handler_input, speech_text)
-        else:
-            return ResponseBuilder.build_error_response(handler_input, 'no_data')
-            
-    except Exception as e:
-        logger.error(f"Error in weather impact handler: {str(e)}")
-        return ResponseBuilder.build_error_response(handler_input, 'api_error')
-
-# Handler para Help Intent
-@sb.request_handler(can_handle_func=is_intent_name("AMAZON.HelpIntent"))
-def help_intent_handler(handler_input):
-    return ResponseBuilder.build_help_response(handler_input)
-
-# Handlers para Cancel e Stop
-@sb.request_handler(can_handle_func=is_intent_name("AMAZON.CancelIntent"))
-@sb.request_handler(can_handle_func=is_intent_name("AMAZON.StopIntent"))
-def cancel_and_stop_intent_handler(handler_input):
-    speech_text = "Até logo! Volte sempre que quiser monitorar sua energia solar."
-    return ResponseBuilder.build_response(handler_input, speech_text)
-
-# Handler para Session Ended
-@sb.request_handler(can_handle_func=is_request_type("SessionEndedRequest"))
-def session_ended_request_handler(handler_input):
-    return handler_input.response_builder.response
-
-# Exception Handler
-@sb.exception_handler(can_handle_func=lambda i, e: True)
-def all_exception_handler(handler_input, exception):
-    logger.error(f"Unexpected error: {str(exception)}")
-    speech_text = "Desculpe, ocorreu um erro inesperado. Tente novamente mais tarde."
-    return ResponseBuilder.build_response(handler_input, speech_text)
-
-# Lambda handler
-def lambda_handler(event, context):
-    return sb.lambda_handler()(event, context)
-```
-
-## 4. Comandos de Teste
 
 ### Frases para Testar
 ```
 # Ativação
 "Alexa, abra assistente energia"
+"Alexa, abrir assistente energia"
 
 # Consumo
 "qual o consumo de energia hoje"
 "quanto gastei de energia esta semana"
 "consumo de ontem"
+"me diga o gasto de energia este mês"
 
 # Produção
 "quanta energia foi gerada hoje"
 "produção desta semana"
 "quanto os painéis geraram ontem"
+"geração de energia hoje"
 
-# Status
+# Status de Dispositivos
 "como está o inversor"
 "qual o status da bateria"
 "verifique o sistema"
+"status do painel solar"
 
 # Economias
 "quanto economizei este mês"
 "qual a economia de hoje"
+"economias desta semana"
 
 # Clima
 "como está o clima afetando a geração"
+"impacto do tempo na produção"
 
-# Ajuda
+# Ajuda e Navegação
 "ajuda"
 "o que você pode fazer"
-
-# Parar
 "parar"
 "cancelar"
 ```
@@ -726,15 +529,17 @@ def lambda_handler(event, context):
     "publishingInformation": {
       "locales": {
         "pt-BR": {
-          "name": "Assistente de Energia Solar",
+          "name": "Assistente de Energia Solar GoodWe",
           "summary": "Monitore seu sistema de energia solar por voz",
-          "description": "Acompanhe consumo, produção, status dos dispositivos e economias do seu sistema de energia solar através de comandos de voz simples.",
-          "keywords": ["energia solar", "monitoramento", "sustentabilidade"],
+          "description": "Acompanhe consumo, produção, status dos dispositivos e economias do seu sistema de energia solar GoodWe através de comandos de voz simples e intuitivos.",
+          "keywords": ["energia solar", "monitoramento", "sustentabilidade", "goodwe", "inversor"],
           "examplePhrases": [
             "Alexa, abra assistente energia",
             "qual o consumo de energia hoje",
             "como está o inversor"
-          ]
+          ],
+          "smallIconUri": "https://s3.amazonaws.com/your-bucket/icons/small-icon.png",
+          "largeIconUri": "https://s3.amazonaws.com/your-bucket/icons/large-icon.png"
         }
       },
       "isAvailableWorldwide": false,
@@ -745,25 +550,146 @@ def lambda_handler(event, context):
       "custom": {
         "endpoint": {
           "uri": "arn:aws:lambda:us-east-1:123456789012:function:alexa-energy-skill"
-        }
+        },
+        "interfaces": []
       }
-    }
+    },
+    "manifestVersion": "1.0"
   }
 }
 ```
 
-### Deploy com ASK CLI
-```bash
-# Inicializar projeto
-ask new
+### Deploy automatizado
+```javascript
+// scripts/deploy.js
+const { execSync } = require('child_process');
+const fs = require('fs');
 
-# Deploy
-ask deploy
+function deploy() {
+    console.log('🚀 Iniciando deploy da Alexa Skill...');
+    
+    try {
+        // Verificar se ASK CLI está configurado
+        execSync('ask --version', { stdio: 'pipe' });
+        
+        // Fazer build do código
+        console.log('📦 Instalando dependências...');
+        execSync('npm install --production', { stdio: 'inherit' });
+        
+        // Deploy da skill
+        console.log('🎯 Fazendo deploy...');
+        execSync('ask deploy', { stdio: 'inherit' });
+        
+        // Executar testes
+        console.log('🧪 Executando testes...');
+        execSync('npm test', { stdio: 'inherit' });
+        
+        console.log('✅ Deploy concluído com sucesso!');
+        
+    } catch (error) {
+        console.error('❌ Erro no deploy:', error.message);
+        process.exit(1);
+    }
+}
 
-# Testar
-ask simulate -l pt-BR -t "abra assistente energia"
+if (require.main === module) {
+    deploy();
+}
+
+module.exports = deploy;
 ```
+
+### Configuração do AWS Lambda
+```yaml
+# template.yaml para SAM
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Resources:
+  AlexaEnergySkillFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambda/
+      Handler: index.handler
+      Runtime: nodejs18.x
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          GOODWE_API_KEY: !Ref GoodWeApiKey
+          API_BASE_URL: !Ref ApiBaseUrl
+          LOG_LEVEL: INFO
+      Events:
+        AlexaSkillEvent:
+          Type: AlexaSkill
+
+Parameters:
+  GoodWeApiKey:
+    Type: String
+    Description: API Key for GoodWe API
+    NoEcho: true
+    
+  ApiBaseUrl:
+    Type: String
+    Default: https://api.goodwe.com/v1
+    Description: Base URL for GoodWe API
+```
+
+## 6. Monitoramento e Logs
+
+### CloudWatch Logs
+```javascript
+// Adicionar ao início dos handlers para melhor logging
+const logRequest = (handlerInput) => {
+    const request = handlerInput.requestEnvelope.request;
+    console.log(JSON.stringify({
+        timestamp: new Date().toISOString(),
+        requestId: handlerInput.requestEnvelope.request.requestId,
+        sessionId: handlerInput.requestEnvelope.session?.sessionId,
+        userId: handlerInput.requestEnvelope.session?.user?.userId,
+        intentName: request.intent?.name,
+        locale: handlerInput.requestEnvelope.request.locale
+    }));
+};
+
+const logResponse = (response, duration) => {
+    console.log(JSON.stringify({
+        timestamp: new Date().toISOString(),
+        responseType: response.outputSpeech?.type,
+        speechLength: response.outputSpeech?.ssml?.length || 0,
+        hasCard: !!response.card,
+        shouldEndSession: response.shouldEndSession,
+        duration: `${duration}ms`
+    }));
+};
+```
+
+## 7. Abordagem Alternativa: Docker + Endpoints
+
+> 🐳 **Nova Implementação**: Para maior flexibilidade e controle, você pode implementar a skill usando Docker e endpoints customizados em vez de AWS Lambda. Veja os arquivos:
+> 
+> - [`06-skill-com-docker-endpoints.md`](./06-skill-com-docker-endpoints.md) - Arquitetura completa com Docker
+> - [`07-handlers-docker-implementation.md`](./07-handlers-docker-implementation.md) - Implementação detalhada dos handlers
+
+### Vantagens da Abordagem Docker:
+- **Controle Total**: Infraestrutura própria
+- **Debugging Fácil**: Logs completos e acesso direto  
+- **Escalabilidade**: Docker Swarm ou Kubernetes
+- **Integração**: Conexão simples com outros serviços
+- **Custo**: Potencialmente menor que AWS Lambda
+- **Cache Redis**: Melhor performance com cache integrado
+
+### Quando Usar Cada Abordagem:
+
+| Aspecto | AWS Lambda | Docker + Endpoints |
+|---------|------------|-------------------|
+| **Simplicidade** | ✅ Mais simples | ⚠️ Mais complexo |
+| **Controle** | ⚠️ Limitado | ✅ Total |
+| **Debugging** | ⚠️ CloudWatch | ✅ Logs diretos |
+| **Custo** | ⚠️ Pay-per-use | ✅ Fixo/menor |
+| **Escalabilidade** | ✅ Automática | ⚠️ Manual |
+| **Manutenção** | ✅ Menor | ⚠️ Maior |
 
 ---
 
-*Este documento fornece exemplos práticos completos para implementar uma Alexa Skill de monitoramento de energia solar no projeto GoodWe.*
+*Este documento fornece exemplos práticos completos para implementar uma Alexa Skill de monitoramento de energia solar no projeto GoodWe, com opções tanto para AWS Lambda quanto para Docker.*
