@@ -45,42 +45,58 @@ Este guia contém toda a documentação necessária para implementar uma Alexa S
 
 | Arquivo | Descrição | Prioridade |
 |---------|-----------|------------|
-| [`08-implementacao-aws-lambda-definitiva.md`](./08-implementacao-aws-lambda-definitiva.md) | **IMPLEMENTAÇÃO COMPLETA** | 🔥 CRÍTICO |
-| [`02-criando-intents.md`](./02-criando-intents.md) | Como criar intents | ⭐ IMPORTANTE |
-| [`03-conectando-com-apis.md`](./03-conectando-com-apis.md) | Integração com APIs | ⭐ IMPORTANTE |
-| [`01-introducao-alexa-skills.md`](./01-introducao-alexa-skills.md) | Conceitos básicos | 📖 REFERÊNCIA |
+| [`09-estrutura-otimizada-lambda.md`](./09-estrutura-otimizada-lambda.md) | **🎯 ESTRUTURA OTIMIZADA (10 arquivos)** | 🔥 RECOMENDADO |
+| [`08-implementacao-aws-lambda-definitiva.md`](./08-implementacao-aws-lambda-definitiva.md) | Implementação completa (27+ arquivos) | ⭐ COMPLETA |
+| [`02-criando-intents.md`](./02-criando-intents.md) | Como criar intents | 📖 REFERÊNCIA |
+| [`03-conectando-com-apis.md`](./03-conectando-com-apis.md) | Integração com APIs | 📖 REFERÊNCIA |
 
 ## 🎯 Foco da Implementação
 
-### **Arquivo Principal: `08-implementacao-aws-lambda-definitiva.md`**
+### **🔥 NOVO: Estrutura Otimizada para Console AWS**
+**Arquivo: `09-estrutura-otimizada-lambda.md`**
 
-Este arquivo contém:
-- ✅ **Estrutura completa** de pastas e arquivos
-- ✅ **Código fonte completo** de todos os handlers
-- ✅ **Configuração AWS Lambda** pronta para deploy
-- ✅ **Interaction Model** completo em português
-- ✅ **Scripts de deploy** automatizados
-- ✅ **Configuração do Alexa Developer Console**
+**Apenas 10 arquivos** vs 27+ da estrutura completa:
+- ✅ **Código consolidado** em 4 arquivos principais
+- ✅ **Fácil navegação** no console AWS Lambda
+- ✅ **Deploy mais rápido** (ZIP menor)
+- ✅ **Manutenção simples** 
+- ✅ **Todas as funcionalidades** mantidas
 
-## 🏗️ Estrutura do Projeto
+### **Estrutura Completa (Alternativa)**
+**Arquivo: `08-implementacao-aws-lambda-definitiva.md`**
+
+Para projetos maiores que precisam de máxima organização:
+- ✅ **27+ arquivos** super organizados
+- ✅ **Separação clara** de responsabilidades
+- ✅ **Ideal para equipes grandes**
+
+## 🏗️ Estrutura Otimizada (RECOMENDADA)
 
 ```
-alexa-goodwe-skill/
+alexa-goodwe-skill/                # 📦 APENAS 10 ARQUIVOS
+├── 📄 index.js                    # Entry point
+├── 📄 package.json               # Dependências
+├── 📁 src/                       # Código fonte (3 arquivos)
+│   ├── handlers.js              # TODOS os handlers
+│   ├── services.js              # API + Response services
+│   └── utils.js                 # Formatação + utilitários
+├── 📁 config/                    # Configuração (2 arquivos)
+│   ├── skill.json              # Manifest da skill
+│   └── pt-BR.json              # Interaction model
+└── 📁 deploy/                    # Deploy (2 arquivos)
+    ├── package.sh              # Criar ZIP
+    └── deploy.sh               # Deploy AWS
+```
+
+## 🏗️ Estrutura Completa (Alternativa)
+
+```
+alexa-goodwe-skill/                # 📦 27+ ARQUIVOS
 ├── 📄 index.js                    # Entry point principal
-├── 📁 handlers/                   # Manipuladores de intents
-│   ├── LaunchHandler.js          # Abertura da skill
-│   ├── EnergyConsumptionHandler.js # Consumo de energia
-│   ├── EnergyProductionHandler.js  # Produção de energia
-│   ├── DeviceStatusHandler.js     # Status de dispositivos
-│   └── ...outros handlers
-├── 📁 services/                   # Serviços de negócio
-│   ├── GoodWeApiService.js       # Cliente da API GoodWe
-│   └── ResponseService.js        # Construção de respostas
-├── 📁 utils/                      # Utilitários
-│   ├── DataFormatter.js          # Formatação de dados
-│   ├── SlotExtractor.js          # Extração de slots
-│   └── TimeProcessor.js          # Processamento de tempo
-├── 📁 config/                     # Configurações
+├── 📁 handlers/                   # 9 arquivos separados
+├── 📁 services/                   # 3 arquivos separados
+├── 📁 utils/                      # 4 arquivos separados
+├── 📁 config/                     # 2 arquivos
 ├── 📁 skill-package/              # Configuração da Skill
 └── 📁 deploy/                     # Scripts de deploy
 ```

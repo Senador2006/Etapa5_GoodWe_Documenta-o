@@ -666,10 +666,12 @@ const logResponse = (response, duration) => {
 
 ## 7. Implementações Disponíveis
 
-### 🎯 **IMPLEMENTAÇÃO RECOMENDADA: AWS Lambda**
-> 📋 **Guia Definitivo**: [`08-implementacao-aws-lambda-definitiva.md`](./08-implementacao-aws-lambda-definitiva.md)
+### 🎯 **IMPLEMENTAÇÃO RECOMENDADA: Estrutura Otimizada**
+> 🔥 **NOVO - Otimizada para Console**: [`09-estrutura-otimizada-lambda.md`](./09-estrutura-otimizada-lambda.md)
 >
-> Este é o arquivo **PRINCIPAL** com implementação completa, estrutura de arquivos, códigos prontos e configuração AWS.
+> **Apenas 10 arquivos** vs 27+ da versão completa - ideal para console AWS Lambda
+>
+> 📋 **Implementação Completa**: [`08-implementacao-aws-lambda-definitiva.md`](./08-implementacao-aws-lambda-definitiva.md)
 >
 > 🚀 **Quick Start**: [`README-IMPLEMENTACAO.md`](./README-IMPLEMENTACAO.md) - Checklist e resumo executivo
 
