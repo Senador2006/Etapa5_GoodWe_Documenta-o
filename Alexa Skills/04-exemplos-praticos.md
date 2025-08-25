@@ -664,9 +664,17 @@ const logResponse = (response, duration) => {
 };
 ```
 
-## 7. Abordagem Alternativa: Docker + Endpoints
+## 7. Implementações Disponíveis
 
-> 🐳 **Nova Implementação**: Para maior flexibilidade e controle, você pode implementar a skill usando Docker e endpoints customizados em vez de AWS Lambda. Veja os arquivos:
+### 🎯 **IMPLEMENTAÇÃO RECOMENDADA: AWS Lambda**
+> 📋 **Guia Definitivo**: [`08-implementacao-aws-lambda-definitiva.md`](./08-implementacao-aws-lambda-definitiva.md)
+>
+> Este é o arquivo **PRINCIPAL** com implementação completa, estrutura de arquivos, códigos prontos e configuração AWS.
+>
+> 🚀 **Quick Start**: [`README-IMPLEMENTACAO.md`](./README-IMPLEMENTACAO.md) - Checklist e resumo executivo
+
+### 🐳 **Abordagem Alternativa: Docker + Endpoints**
+> Para maior flexibilidade e controle, você pode implementar usando Docker:
 > 
 > - [`06-skill-com-docker-endpoints.md`](./06-skill-com-docker-endpoints.md) - Arquitetura completa com Docker
 > - [`07-handlers-docker-implementation.md`](./07-handlers-docker-implementation.md) - Implementação detalhada dos handlers
