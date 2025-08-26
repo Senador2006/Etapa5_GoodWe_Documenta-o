@@ -10,6 +10,8 @@ A API Machine Learning é um serviço FastAPI desenvolvido em Python que fornece
 - **Base URL**: `http://localhost:8000`
 - **Tecnologia**: Python + FastAPI
 - **Documentação Interativa**: `http://localhost:8000/docs`
+  - Essa documentação explica como cada endpoint do ML funciona
+- **URL deploydada (Utilizar essa durante a construção da API principal)** : `http://power-outage-prediction-api.onrender.com`
 
 ## 🔧 Dependências Principais
 
