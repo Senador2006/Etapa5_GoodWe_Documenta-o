@@ -16,19 +16,20 @@ O projeto GoodWe possui duas APIs principais que podem ser executadas independen
 - **Python** >= 3.11
 - **NPM** ou **Yarn**
 - **Git**
+- **Docker** (opcional, para containers)
 
-### 1. API Excel (Node.js)
+### 1. API Principal GoodWe (Node.js)
 
 ```bash
-# Clone o repositório
-git clone <repo-url>
-cd Etapa5_GoodWe/API_GoodWe
+# Navegar para o diretório da API
+cd API_GoodWe
 
 # Instalar dependências
 npm install
 
-# Configurar variáveis de ambiente (opcional)
-cp .env.example .env
+# Verificar se os arquivos de dados existem
+ls scr/data/
+# Deve conter: Potência Vegetal_20250820190939.xls
 
 # Iniciar em modo desenvolvimento
 npm run dev
@@ -37,7 +38,10 @@ npm run dev
 npm start
 ```
 
-**Verificação**: http://localhost:3000
+**Verificação**: 
+- API: http://localhost:3000
+- Health: http://localhost:3000/health
+- Excel Info: http://localhost:3000/excel
 
 ### 2. API Machine Learning (Python)
 
@@ -56,20 +60,30 @@ source venv/bin/activate
 # Instalar dependências
 pip install -r requirements.txt
 
-# Treinar modelo (se necessário)
+# Verificar se o modelo existe
+ls *.pkl *.json
+# Deve conter: power_outage_model.pkl, features.json
+
+# Se não existir, treinar modelo
 python train_model.py
 
-# Iniciar API
+# Iniciar API (método recomendado)
 python start_api.py
+
+# Ou diretamente
+uvicorn api:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-**Verificação**: http://localhost:8000/docs
+**Verificação**: 
+- API: http://localhost:8000
+- Docs: http://localhost:8000/docs
+- Health: http://localhost:8000/health
 
 ## 🐳 Deployment com Docker
 
 ### Docker Individual
 
-#### API Excel
+#### API Principal GoodWe
 ```bash
 cd API_GoodWe
 
@@ -80,7 +94,10 @@ docker build -t api-goodwe .
 docker run -d \
   --name api-goodwe-container \
   -p 3000:3000 \
-  -v $(pwd)/scr/data:/app/scr/data \
+  -v $(pwd)/scr/data:/app/scr/data:rw \
+  -v $(pwd)/logs:/app/logs:rw \
+  -e NODE_ENV=production \
+  -e PORT=3000 \
   api-goodwe
 ```
 
@@ -95,12 +112,14 @@ docker build -t ml-api .
 docker run -d \
   --name ml-api-container \
   -p 8000:8000 \
+  -e HOST=0.0.0.0 \
+  -e PORT=8000 \
   ml-api
 ```
 
 ### Docker Compose - Ambiente Completo
 
-#### API Excel com PostgreSQL e Redis
+#### API Principal GoodWe com PostgreSQL e Redis
 ```bash
 cd API_GoodWe
 
@@ -118,10 +137,16 @@ docker-compose down
 ```
 
 **Serviços incluídos**:
-- API Excel (porta 3000)
-- PostgreSQL (porta 5432)
-- Redis (porta 6379)
-- Nginx (portas 80/443)
+- **api-goodwe**: API Principal (porta 3000)
+- **postgres**: PostgreSQL (porta 5432)
+- **redis**: Redis (porta 6379)
+- **nginx**: Proxy reverso (portas 80/443)
+
+**Configurações do Docker Compose**:
+- Volumes persistentes para dados
+- Health checks configurados
+- Rede isolada (goodwe-network)
+- Variáveis de ambiente configuradas
 
 #### API Machine Learning
 ```bash
@@ -131,8 +156,16 @@ cd Machine_learning_GoodWe
 docker-compose up -d
 
 # Verificar logs
-docker-compose logs -f power-outage-api
+docker-compose logs -f ml-api
+
+# Verificar health
+curl http://localhost:8000/health
 ```
+
+**Configurações específicas**:
+- Health check com curl
+- Volume para logs
+- Configuração de ambiente otimizada
 
 ## ⚙️ Configurações de Ambiente
 

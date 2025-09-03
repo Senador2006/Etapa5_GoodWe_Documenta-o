@@ -1,17 +1,18 @@
 # API Machine Learning - Documentação Técnica
 
-A API Machine Learning é um serviço FastAPI desenvolvido em Python que fornece predições de quedas de energia baseadas em condições climáticas usando um modelo Random Forest treinado.
+A API Machine Learning é um serviço FastAPI desenvolvido em Python que fornece predições de quedas de energia baseadas em condições climáticas usando um modelo Random Forest treinado com dados sintéticos.
 
 ## 📋 Informações Gerais
 
 - **Nome**: API de Predição de Quedas de Energia
 - **Versão**: 1.0.0
 - **Porta**: 8000
-- **Base URL**: `http://localhost:8000`
-- **Tecnologia**: Python + FastAPI
+- **Base URL Local**: `http://localhost:8000`
+- **Base URL Deploy**: `http://power-outage-prediction-api.onrender.com`
+- **Tecnologia**: Python 3.11 + FastAPI + Uvicorn
 - **Documentação Interativa**: `http://localhost:8000/docs`
-  - Essa documentação explica como cada endpoint do ML funciona
-- **URL deploydada (Utilizar essa durante a construção da API principal)** : `http://power-outage-prediction-api.onrender.com`
+- **Arquivo Principal**: `api.py`
+- **Script de Inicialização**: `start_api.py`
 
 ## 🔧 Dependências Principais
 
@@ -22,23 +23,48 @@ scikit-learn==1.7.1
 pandas==2.3.1
 numpy==2.3.2
 pydantic==2.11.7
+pydantic_core==2.33.2
 joblib==1.5.1
+scipy==1.16.1
 ```
+
+### Dependências de Sistema
+- **Python**: 3.11+
+- **GCC/G++**: Para compilação de dependências nativas
+- **Arquivos Necessários**:
+  - `power_outage_model.pkl` - Modelo treinado
+  - `features.json` - Lista de features utilizadas
+  - `power_outage_simple.json` - Dataset de treinamento
 
 ## 🧠 Modelo de Machine Learning
 
 ### Características do Modelo
 - **Algoritmo**: Random Forest Classifier
+- **Parâmetros do Modelo**:
+  - `n_estimators`: 100 árvores
+  - `max_depth`: 10 níveis
+  - `random_state`: 42 (reprodutibilidade)
+  - `n_jobs`: -1 (paralelização)
 - **Acurácia**: 76.7%
-- **Dataset**: 50.000 registros sintéticos
+- **Dataset**: Dados sintéticos de condições climáticas
 - **Features**: 5 variáveis climáticas
+- **Divisão de Dados**: 80% treino, 20% teste
 
-### Importância das Features
-1. **Vento (km/h)**: 57.1% - Mais importante
-2. **Precipitação (mm/h)**: 30.0% - Muito importante  
-3. **Temperatura (°C)**: 4.6% - Pouco importante
-4. **Pressão (hPa)**: 4.3% - Pouco importante
-5. **Umidade (%)**: 4.0% - Pouco importante
+### Importância das Features (Baseado no Modelo Real)
+1. **vento_kmh**: 57.1% - Mais importante
+2. **precipitacao_mm_h**: 30.0% - Muito importante  
+3. **temperatura_celsius**: 4.6% - Pouco importante
+4. **pressao_hpa**: 4.3% - Pouco importante
+5. **umidade_pct**: 4.0% - Pouco importante
+
+### Processo de Treinamento
+O modelo é treinado através do script `train_model.py` que:
+1. Carrega dados do arquivo `power_outage_simple.json`
+2. Prepara features climáticas
+3. Divide dados em treino/teste (80/20)
+4. Treina Random Forest com validação cruzada
+5. Salva modelo em `power_outage_model.pkl`
+6. Salva features em `features.json`
 
 ## 🚀 Endpoints Disponíveis
 
@@ -53,6 +79,20 @@ Retorna informações gerais da API e endpoints disponíveis.
   "message": "API de Predição de Quedas de Energia",
   "version": "1.0.0",
   "status": "ativo",
+  "endpoints": {
+    "/predict": "POST - Fazer predição de queda de energia",
+    "/health": "GET - Verificar status da API",
+    "/docs": "GET - Documentação interativa"
+  }
+}
+```
+
+**Resposta com Erro (Modelo não carregado)**:
+```json
+{
+  "message": "API de Predição de Quedas de Energia",
+  "version": "1.0.0",
+  "status": "erro - modelo não carregado",
   "endpoints": {
     "/predict": "POST - Fazer predição de queda de energia",
     "/health": "GET - Verificar status da API",
@@ -338,57 +378,119 @@ class PredictionResponse(BaseModel):
 ## 🔧 Configuração e Execução
 
 ### Arquivos Necessários
-- `power_outage_model.pkl` - Modelo treinado
-- `features.json` - Lista de features
+- `power_outage_model.pkl` - Modelo treinado (gerado pelo train_model.py)
+- `features.json` - Lista de features (gerado pelo train_model.py)
+- `power_outage_simple.json` - Dataset de treinamento
 - `api.py` - Código principal da API
+- `start_api.py` - Script de inicialização com verificações
 
 ### Comandos de Execução
+
+#### 1. Preparação do Ambiente
 ```bash
+# Navegar para o diretório
+cd Machine_learning_GoodWe
+
 # Instalar dependências
 pip install -r requirements.txt
 
-# Treinar modelo (se necessário)
+# Treinar modelo (primeira vez ou retreinamento)
 python train_model.py
+```
 
-# Iniciar API
+#### 2. Inicialização da API
+```bash
+# Método recomendado (com verificações)
 python start_api.py
 
-# Ou diretamente
+# Ou diretamente com uvicorn
 uvicorn api:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### Variáveis de Ambiente
+#### 3. Verificação
 ```bash
-HOST=0.0.0.0
-PORT=8000
-RELOAD=true
-LOG_LEVEL=info
+# Testar API
+python test_api.py
+
+# Ou manualmente
+curl http://localhost:8000/health
 ```
+
+### Configuração do Script de Inicialização
+O `start_api.py` inclui:
+- ✅ Verificação de arquivos necessários
+- ✅ Mensagens informativas
+- ✅ Tratamento de erros
+- ✅ Configuração automática do uvicorn
+- ✅ Logs estruturados
 
 ## 🐳 Docker
 
-### Dockerfile
+### Dockerfile (Configuração Real)
 ```dockerfile
+# Use Python 3.11 slim image
 FROM python:3.11-slim
+
+# Set working directory
 WORKDIR /app
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# Install system dependencies
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        gcc \
+        g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first for better caching
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
 COPY . .
+
+# Create non-root user for security
+RUN useradd --create-home --shell /bin/bash appuser \
+    && chown -R appuser:appuser /app
+USER appuser
+
+# Expose port
 EXPOSE 8000
-CMD ["python", "start_api.py"]
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Command to run the application
+CMD ["python", "api.py"]
 ```
 
-### Docker Compose
+### Docker Compose (Configuração Real)
 ```yaml
 version: '3.8'
 services:
   ml-api:
-    build: .
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: ml-api-container
+    restart: unless-stopped
     ports:
       - "8000:8000"
     environment:
-      - HOST=0.0.0.0
-      - PORT=8000
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./logs:/app/logs:rw
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 ```
 
 ## 🧪 Testes
