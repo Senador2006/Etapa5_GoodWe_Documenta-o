@@ -1,488 +1,755 @@
-# 4. Deployment e Publicação
+# Guia de Deployment - Alexa Skills GoodWe
 
-## 🚀 Preparação para Deploy
+## 📋 Visão Geral
 
-### 1. Checklist Pré-Deploy
+Este guia fornece instruções completas para fazer deploy da Alexa Skill GoodWe em ambiente de produção, incluindo configuração da AWS, CI/CD e monitoramento.
 
-#### ✅ Funcionalidade
-- [ ] Todos os intents funcionam corretamente
-- [ ] Tratamento de erros implementado
-- [ ] Fallbacks para cenários não mapeados
-- [ ] Testes em diferentes dispositivos Alexa
-- [ ] Performance otimizada (< 8 segundos resposta)
+## 🏗️ Arquitetura de Deploy
 
-#### ✅ Qualidade de Código
-- [ ] Logs adequados para debugging
-- [ ] Código documentado e organizado
-- [ ] Validação de entrada de dados
-- [ ] Segurança implementada (não exposição de dados sensíveis)
+### Componentes da Infraestrutura
 
-#### ✅ Experiência do Usuário
-- [ ] Respostas naturais e conversacionais
-- [ ] Ajuda contextual disponível
-- [ ] Comandos de cancelar/parar funcionando
-- [ ] Cards visuais (quando aplicável)
+```mermaid
+graph TB
+    A[Usuário] --> B[Alexa Device]
+    B --> C[Alexa Service]
+    C --> D[Lambda Function]
+    D --> E[API Gateway]
+    E --> F[API Principal GoodWe]
+    E --> G[API Machine Learning]
+    F --> H[RDS PostgreSQL]
+    G --> I[S3 Model Storage]
+    D --> J[CloudWatch Logs]
+    D --> K[CloudWatch Metrics]
+    L[CodePipeline] --> D
+    M[CodeBuild] --> L
+    N[GitHub] --> M
+```
 
-## 🧪 Ambiente de Testes
+### Stack de Deploy
 
-### 1. Teste Local com ASK CLI
+- **AWS Lambda**: Função principal da skill
+- **API Gateway**: Proxy para APIs externas
+- **RDS PostgreSQL**: Banco de dados para APIs
+- **S3**: Armazenamento de modelos ML
+- **CloudWatch**: Logs e métricas
+- **CodePipeline**: CI/CD automatizado
 
+## 🚀 Deploy Manual
+
+### 1. Preparação do Ambiente
+
+#### Configuração AWS CLI
 ```bash
-# Testar skill localmente
-ask dialog --locale pt-BR
+# Instalar AWS CLI
+pip install awscli
 
-# Exemplo de sessão de teste
-User > abra assistente pessoal
-Alexa > Olá! Bem-vindo ao seu assistente pessoal. Como posso ajudar?
-User > qual o tempo hoje
-Alexa > A temperatura hoje é 25 graus e o tempo está ensolarado.
+# Configurar credenciais
+aws configure
+# AWS Access Key ID: [sua-access-key]
+# AWS Secret Access Key: [sua-secret-key]
+# Default region name: us-east-1
+# Default output format: json
+
+# Verificar configuração
+aws sts get-caller-identity
 ```
 
-### 2. Simulador Web
-- Acesse Developer Console > Test
-- Configure locale para pt-BR
-- Teste scenarios completos
-- Verifique JSON requests/responses
-
-### 3. Dispositivos Beta
+#### Configuração ASK CLI
 ```bash
-# Habilitar skill para teste beta
-ask api enable-skill-for-development --skill-id amzn1.ask.skill.12345
+# Instalar ASK CLI
+npm install -g ask-cli
+
+# Configurar perfil
+ask configure
+# Please create a new profile or overwrite the existing profile.
+# Profile name: goodwe-skill
+# ASK CLI region: us-east-1
+# AWS profile name: default
+# VENDOR ID: [seu-vendor-id]
 ```
 
-## 🔧 Configuração de Produção
+### 2. Deploy da Lambda Function
 
-### 1. AWS Lambda Configuration
-
-#### Environment Variables
-```javascript
-// No console AWS Lambda
-const config = {
-    NEWS_API_KEY: process.env.NEWS_API_KEY,
-    DATABASE_URL: process.env.DATABASE_URL,
-    LOG_LEVEL: process.env.LOG_LEVEL || 'info'
-};
+#### Criar Função Lambda
+```bash
+# Criar função Lambda
+aws lambda create-function \
+  --function-name GoodWeSolarAssistant \
+  --runtime nodejs18.x \
+  --role arn:aws:iam::123456789012:role/lambda-execution-role \
+  --handler index.handler \
+  --zip-file fileb://lambda-deployment-package.zip \
+  --timeout 30 \
+  --memory-size 256
 ```
 
-#### Timeout Settings
-```javascript
-// Configuração recomendada
-{
-    "timeout": 30, // segundos
-    "memorySize": 512, // MB
-    "runtime": "nodejs18.x"
-}
+#### Configurar Variáveis de Ambiente
+```bash
+# Configurar variáveis de ambiente
+aws lambda update-function-configuration \
+  --function-name GoodWeSolarAssistant \
+  --environment Variables='{
+    "GOODWE_API_URL":"https://api.goodwe.com",
+    "ML_API_URL":"https://ml-api.goodwe.com",
+    "WEATHER_API_KEY":"sua-weather-api-key",
+    "DEBUG":"false",
+    "LOG_LEVEL":"info"
+  }'
 ```
 
-#### IAM Permissions
-```json
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Action": [
-                "dynamodb:GetItem",
-                "dynamodb:PutItem",
-                "dynamodb:UpdateItem",
-                "dynamodb:DeleteItem",
-                "dynamodb:Scan",
-                "dynamodb:Query"
-            ],
-            "Resource": "arn:aws:dynamodb:*:*:table/AlexaSkillTable"
-        },
-        {
-            "Effect": "Allow", 
-            "Action": [
-                "logs:CreateLogGroup",
-                "logs:CreateLogStream",
-                "logs:PutLogEvents"
-            ],
-            "Resource": "arn:aws:logs:*:*:*"
-        }
-    ]
-}
+#### Deploy do Código
+```bash
+# Criar pacote de deploy
+cd lambda
+npm install --production
+zip -r ../lambda-deployment-package.zip .
+
+# Atualizar função
+aws lambda update-function-code \
+  --function-name GoodWeSolarAssistant \
+  --zip-file fileb://../lambda-deployment-package.zip
 ```
 
-### 2. Skill Manifest Completo
+### 3. Deploy da Skill
 
-```json
-{
-    "manifest": {
-        "publishingInformation": {
-            "locales": {
-                "pt-BR": {
-                    "summary": "Assistente pessoal para tarefas do dia a dia",
-                    "examplePhrases": [
-                        "Alexa, abra assistente pessoal",
-                        "Alexa, peça para assistente pessoal o tempo",
-                        "Alexa, diga para assistente pessoal olá"
-                    ],
-                    "keywords": [
-                        "assistente",
-                        "pessoal", 
-                        "produtividade",
-                        "tarefas"
-                    ],
-                    "name": "Assistente Pessoal",
-                    "description": "Um assistente pessoal completo que ajuda com informações do tempo, notícias, lembretes e muito mais.",
-                    "smallIconUri": "https://s3.amazonaws.com/my-bucket/small-icon.png",
-                    "largeIconUri": "https://s3.amazonaws.com/my-bucket/large-icon.png"
-                }
-            },
-            "isAvailableWorldwide": false,
-            "testingInstructions": "Para testar, diga 'Alexa, abra assistente pessoal' e siga as instruções de voz.",
-            "category": "PRODUCTIVITY",
-            "distributionCountries": ["BR"]
-        },
-        "apis": {
-            "custom": {
-                "endpoint": {
-                    "uri": "arn:aws:lambda:us-east-1:123456789:function:assistente-pessoal"
-                },
-                "interfaces": [
-                    {
-                        "type": "AUDIO_PLAYER"
-                    },
-                    {
-                        "type": "ALEXA_PRESENTATION_APL"
-                    }
-                ]
-            }
-        },
-        "manifestVersion": "1.0",
-        "permissions": [
-            {
-                "name": "alexa::profile:name:read"
-            },
-            {
-                "name": "alexa::profile:email:read"
-            }
-        ],
-        "privacyAndCompliance": {
-            "allowsPurchases": false,
-            "usesPersonalInfo": true,
-            "isChildDirected": false,
-            "isExportCompliant": true,
-            "containsAds": false,
-            "locales": {
-                "pt-BR": {
-                    "privacyPolicyUrl": "https://example.com/privacy-policy",
-                    "termsOfUseUrl": "https://example.com/terms-of-use"
-                }
-            }
-        }
-    }
-}
+#### Deploy Completo
+```bash
+# Deploy da skill completa
+ask deploy
+
+# Deploy apenas da Lambda
+ask deploy --target lambda
+
+# Deploy apenas do modelo de interação
+ask deploy --target model
 ```
 
-## 📦 Deploy Automatizado
+#### Verificar Deploy
+```bash
+# Verificar status da skill
+ask get-skill-status
 
-### 1. CI/CD com GitHub Actions
+# Testar skill
+ask simulate --text "qual o status do sistema" --locale pt-BR
+```
 
+## 🔄 Deploy Automatizado com CI/CD
+
+### 1. Configuração do GitHub Actions
+
+#### Arquivo .github/workflows/deploy.yml
 ```yaml
-# .github/workflows/deploy-alexa-skill.yml
-name: Deploy Alexa Skill
+name: Deploy GoodWe Alexa Skill
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, develop ]
   pull_request:
     branches: [ main ]
+
+env:
+  AWS_REGION: us-east-1
+  LAMBDA_FUNCTION_NAME: GoodWeSolarAssistant
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     
     - name: Setup Node.js
-      uses: actions/setup-node@v2
+      uses: actions/setup-node@v3
       with:
         node-version: '18'
-        
+        cache: 'npm'
+        cache-dependency-path: lambda/package.json
+    
     - name: Install dependencies
       run: |
         cd lambda
-        npm install
-        
+        npm ci
+    
     - name: Run tests
       run: |
         cd lambda
         npm test
-        
-  deploy:
+    
+    - name: Lint code
+      run: |
+        cd lambda
+        npm run lint
+
+  deploy-staging:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop'
+    environment: staging
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+    
+    - name: Setup ASK CLI
+      run: |
+        npm install -g ask-cli
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+    
+    - name: Deploy to staging
+      run: |
+        ask deploy --target lambda --profile staging
+      env:
+        ASK_VENDOR_ID: ${{ secrets.ASK_VENDOR_ID }}
+
+  deploy-production:
     needs: test
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
+    environment: production
     
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     
     - name: Setup Node.js
-      uses: actions/setup-node@v2
+      uses: actions/setup-node@v3
       with:
         node-version: '18'
-        
-    - name: Install ASK CLI
-      run: npm install -g ask-cli
-      
-    - name: Configure ASK CLI
+    
+    - name: Setup ASK CLI
       run: |
-        ask configure --no-browser << EOF
-        ${{ secrets.ASK_ACCESS_TOKEN }}
-        ${{ secrets.ASK_REFRESH_TOKEN }}
-        ${{ secrets.ASK_VENDOR_ID }}
-        EOF
-        
-    - name: Deploy skill
+        npm install -g ask-cli
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+    
+    - name: Deploy to production
       run: |
-        ask deploy --target skill
-        ask deploy --target lambda
+        ask deploy --profile production
+      env:
+        ASK_VENDOR_ID: ${{ secrets.ASK_VENDOR_ID }}
+    
+    - name: Run integration tests
+      run: |
+        npm run test:integration
+    
+    - name: Notify deployment
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        channel: '#deployments'
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
 ```
 
-### 2. Script de Deploy Local
+### 2. Configuração de Ambientes
+
+#### Ambiente de Staging
+```bash
+# Configurar perfil de staging
+ask configure --profile staging
+# Profile name: staging
+# ASK CLI region: us-east-1
+# AWS profile name: staging
+# VENDOR ID: [seu-vendor-id]
+
+# Deploy para staging
+ask deploy --profile staging
+```
+
+#### Ambiente de Produção
+```bash
+# Configurar perfil de produção
+ask configure --profile production
+# Profile name: production
+# ASK CLI region: us-east-1
+# AWS profile name: production
+# VENDOR ID: [seu-vendor-id]
+
+# Deploy para produção
+ask deploy --profile production
+```
+
+### 3. Configuração de Secrets
+
+#### GitHub Secrets
+```bash
+# Configurar secrets no GitHub
+# AWS_ACCESS_KEY_ID: [sua-access-key]
+# AWS_SECRET_ACCESS_KEY: [sua-secret-key]
+# ASK_VENDOR_ID: [seu-vendor-id]
+# WEATHER_API_KEY: [sua-weather-api-key]
+# SLACK_WEBHOOK: [seu-slack-webhook]
+```
+
+## 🐳 Deploy com Docker
+
+### 1. Dockerfile para Lambda
+
+```dockerfile
+# Dockerfile.lambda
+FROM public.ecr.aws/lambda/nodejs:18
+
+# Copiar código
+COPY lambda/ ${LAMBDA_TASK_ROOT}/
+
+# Instalar dependências
+RUN npm ci --only=production
+
+# Configurar handler
+CMD ["index.handler"]
+```
+
+### 2. Build e Deploy com Docker
 
 ```bash
-#!/bin/bash
-# deploy.sh
+# Build da imagem
+docker build -f Dockerfile.lambda -t goodwe-alexa-skill .
 
-echo "🚀 Iniciando deploy da Alexa Skill..."
+# Tag para ECR
+docker tag goodwe-alexa-skill:latest 123456789012.dkr.ecr.us-east-1.amazonaws.com/goodwe-alexa-skill:latest
 
-# Validar skill
-echo "📋 Validando configuração..."
-ask api validate-skill --skill-id $SKILL_ID
+# Push para ECR
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 123456789012.dkr.ecr.us-east-1.amazonaws.com
+docker push 123456789012.dkr.ecr.us-east-1.amazonaws.com/goodwe-alexa-skill:latest
 
-# Deploy do modelo
-echo "🎯 Deploy do interaction model..."
-ask api update-interaction-model --skill-id $SKILL_ID --stage development --locale pt-BR --interaction-model file:models/pt-BR.json
-
-# Deploy da função Lambda
-echo "⚡ Deploy do código Lambda..."
-cd lambda
-zip -r ../lambda-function.zip .
-aws lambda update-function-code --function-name assistente-pessoal --zip-file fileb://../lambda-function.zip
-cd ..
-
-# Aguardar build do modelo
-echo "⏳ Aguardando build do modelo..."
-ask api get-interaction-model-build-status --skill-id $SKILL_ID --stage development --locale pt-BR
-
-echo "✅ Deploy concluído!"
+# Atualizar função Lambda
+aws lambda update-function-code \
+  --function-name GoodWeSolarAssistant \
+  --image-uri 123456789012.dkr.ecr.us-east-1.amazonaws.com/goodwe-alexa-skill:latest
 ```
 
-## 🎯 Processo de Certificação
-
-### 1. Requisitos de Certificação
-
-#### Funcionalidade
-- Skill deve funcionar conforme descrito
-- Todos os intents documentados devem funcionar
-- Comandos de help, stop, cancel obrigatórios
-- Tratamento adequado de erros
-
-#### Conteúdo
-- Conteúdo apropriado para todas as idades
-- Não infringir direitos autorais
-- Informações precisas e atualizadas
-- Política de privacidade quando necessário
-
-#### Experiência do Usuário
-- Respostas claras e concisas
-- Fluxo de conversação natural
-- Ajuda contextual disponível
-- Tempo de resposta adequado (< 8s)
-
-### 2. Submissão para Certificação
-
-```bash
-# Submeter para certificação
-ask api submit-skill-for-certification --skill-id $SKILL_ID
-```
-
-### 3. Checklist de Certificação
-
-#### ✅ Testes Obrigatórios
-- [ ] Launch request funciona
-- [ ] Help intent fornece ajuda útil
-- [ ] Stop/Cancel encerram adequadamente
-- [ ] Intents customizados funcionam
-- [ ] Tratamento de erro gracioso
-- [ ] SessionEndedRequest tratado
-
-#### ✅ Metadados
-- [ ] Nome da skill único e descritivo
-- [ ] Descrição clara e completa
-- [ ] Ícones de alta qualidade (108x108, 512x512)
-- [ ] Frases de exemplo representativas
-- [ ] Keywords relevantes
-- [ ] Categoria apropriada
-
-#### ✅ Compliance
-- [ ] Política de privacidade (se aplicável)
-- [ ] Termos de uso (se aplicável)
-- [ ] Não coleta dados de menores
-- [ ] Declaração de exportação
-
-## 📊 Monitoramento e Analytics
+## 📊 Monitoramento e Observabilidade
 
 ### 1. CloudWatch Logs
 
+#### Configuração de Logs
 ```javascript
-// Configurar logs estruturados
+// Configuração de logging estruturado
 const winston = require('winston');
 
 const logger = winston.createLogger({
-    level: 'info',
-    format: winston.format.combine(
-        winston.format.timestamp(),
-        winston.format.json()
-    ),
-    transports: [
-        new winston.transports.Console()
-    ]
+  level: process.env.LOG_LEVEL || 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.errors({ stack: true }),
+    winston.format.json()
+  ),
+  transports: [
+    new winston.transports.Console(),
+    new winston.transports.File({ filename: 'error.log', level: 'error' }),
+    new winston.transports.File({ filename: 'combined.log' })
+  ]
 });
 
-// Uso nos handlers
-const LaunchRequestHandler = {
-    handle(handlerInput) {
-        logger.info('LaunchRequest received', {
-            userId: handlerInput.requestEnvelope.session.user.userId,
-            sessionId: handlerInput.requestEnvelope.session.sessionId
-        });
-        
-        // ... resto do código
-    }
-};
+// Uso do logger
+logger.info('Intent processado', {
+  intent: 'GetSystemStatus',
+  userId: 'user123',
+  timestamp: new Date().toISOString()
+});
 ```
 
-### 2. Métricas Personalizadas
+#### Configuração de Log Groups
+```bash
+# Criar log group
+aws logs create-log-group \
+  --log-group-name /aws/lambda/GoodWeSolarAssistant
 
+# Configurar retenção
+aws logs put-retention-policy \
+  --log-group-name /aws/lambda/GoodWeSolarAssistant \
+  --retention-in-days 30
+```
+
+### 2. CloudWatch Metrics
+
+#### Métricas Personalizadas
 ```javascript
 const AWS = require('aws-sdk');
 const cloudwatch = new AWS.CloudWatch();
 
-async function enviarMetrica(nomeMetrica, valor, unidade = 'Count') {
-    const params = {
-        Namespace: 'AlexaSkill/AssistentePessoal',
-        MetricData: [{
-            MetricName: nomeMetrica,
-            Value: valor,
-            Unit: unidade,
-            Timestamp: new Date()
-        }]
-    };
-    
-    try {
-        await cloudwatch.putMetricData(params).promise();
-    } catch (error) {
-        console.error('Erro ao enviar métrica:', error);
-    }
+// Enviar métricas personalizadas
+async function sendCustomMetric(metricName, value, unit = 'Count') {
+  try {
+    await cloudwatch.putMetricData({
+      Namespace: 'GoodWe/AlexaSkill',
+      MetricData: [{
+        MetricName: metricName,
+        Value: value,
+        Unit: unit,
+        Timestamp: new Date(),
+        Dimensions: [
+          {
+            Name: 'FunctionName',
+            Value: 'GoodWeSolarAssistant'
+          }
+        ]
+      }]
+    }).promise();
+  } catch (error) {
+    console.error('Erro ao enviar métrica:', error);
+  }
 }
 
-// Uso
-await enviarMetrica('IntentInvocations', 1);
-await enviarMetrica('ResponseTime', responseTime, 'Milliseconds');
+// Exemplos de métricas
+await sendCustomMetric('IntentProcessed', 1, 'Count');
+await sendCustomMetric('APIResponseTime', 1500, 'Milliseconds');
+await sendCustomMetric('ErrorRate', 0.05, 'Percent');
 ```
 
-### 3. Dashboard de Analytics
-
-```javascript
-// Integração com Analytics da Amazon
-const analytics = {
-    trackIntent: (intentName, userId) => {
-        logger.info('Intent tracked', {
-            intent: intentName,
-            userId: userId,
-            timestamp: new Date().toISOString()
-        });
+#### Dashboard do CloudWatch
+```json
+{
+  "widgets": [
+    {
+      "type": "metric",
+      "properties": {
+        "metrics": [
+          ["AWS/Lambda", "Invocations", "FunctionName", "GoodWeSolarAssistant"],
+          [".", "Errors", ".", "."],
+          [".", "Duration", ".", "."]
+        ],
+        "period": 300,
+        "stat": "Average",
+        "region": "us-east-1",
+        "title": "Lambda Performance"
+      }
     },
-    
-    trackError: (error, context) => {
-        logger.error('Error tracked', {
-            error: error.message,
-            stack: error.stack,
-            context: context,
-            timestamp: new Date().toISOString()
-        });
+    {
+      "type": "metric",
+      "properties": {
+        "metrics": [
+          ["GoodWe/AlexaSkill", "IntentProcessed"],
+          [".", "APIResponseTime"],
+          [".", "ErrorRate"]
+        ],
+        "period": 300,
+        "stat": "Average",
+        "region": "us-east-1",
+        "title": "Custom Metrics"
+      }
     }
-};
+  ]
+}
 ```
 
-## 🔄 Atualizações e Manutenção
+### 3. Alertas e Notificações
 
-### 1. Versionamento
-
+#### Configuração de Alarmes
 ```bash
-# Criar nova versão
-ask api create-skill-version --skill-id $SKILL_ID
+# Alarme para erros
+aws cloudwatch put-metric-alarm \
+  --alarm-name "GoodWe-Lambda-Errors" \
+  --alarm-description "Alarme para erros na Lambda" \
+  --metric-name Errors \
+  --namespace AWS/Lambda \
+  --statistic Sum \
+  --period 300 \
+  --threshold 5 \
+  --comparison-operator GreaterThanThreshold \
+  --evaluation-periods 2 \
+  --alarm-actions arn:aws:sns:us-east-1:123456789012:goodwe-alerts
 
-# Listar versões
-ask api list-skill-versions --skill-id $SKILL_ID
+# Alarme para duração
+aws cloudwatch put-metric-alarm \
+  --alarm-name "GoodWe-Lambda-Duration" \
+  --alarm-description "Alarme para duração alta na Lambda" \
+  --metric-name Duration \
+  --namespace AWS/Lambda \
+  --statistic Average \
+  --period 300 \
+  --threshold 10000 \
+  --comparison-operator GreaterThanThreshold \
+  --evaluation-periods 2 \
+  --alarm-actions arn:aws:sns:us-east-1:123456789012:goodwe-alerts
 ```
 
-### 2. Rollback de Emergência
-
+#### Configuração de SNS
 ```bash
-# Reverter para versão anterior
-ask api rollback-skill --skill-id $SKILL_ID --target-version "1.0"
+# Criar tópico SNS
+aws sns create-topic --name goodwe-alerts
+
+# Criar subscription
+aws sns subscribe \
+  --topic-arn arn:aws:sns:us-east-1:123456789012:goodwe-alerts \
+  --protocol email \
+  --notification-endpoint admin@goodwe.com
 ```
 
-### 3. Monitoramento Contínuo
+## 🔒 Segurança e Compliance
 
-```javascript
-// Health check endpoint
-app.get('/health', (req, res) => {
-    const health = {
-        status: 'healthy',
-        timestamp: new Date().toISOString(),
-        version: process.env.APP_VERSION || '1.0.0',
-        dependencies: {
-            database: checkDatabaseHealth(),
-            externalApi: checkExternalApiHealth()
+### 1. Configuração de IAM
+
+#### Role para Lambda
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "arn:aws:logs:*:*:*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:PutMetricData"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "sns:Publish"
+      ],
+      "Resource": "arn:aws:sns:us-east-1:123456789012:goodwe-alerts"
+    }
+  ]
+}
+```
+
+#### Política de Segurança
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "aws:RequestedRegion": "us-east-1"
         }
-    };
+      }
+    }
+  ]
+}
+```
+
+### 2. Criptografia e Secrets
+
+#### AWS Secrets Manager
+```bash
+# Criar secret para API keys
+aws secretsmanager create-secret \
+  --name "goodwe/api-keys" \
+  --description "API keys para GoodWe" \
+  --secret-string '{"goodwe_api_key":"sua-key","weather_api_key":"sua-key"}'
+
+# Recuperar secret no código
+const AWS = require('aws-sdk');
+const secretsManager = new AWS.SecretsManager();
+
+async function getSecret(secretName) {
+  try {
+    const result = await secretsManager.getSecretValue({
+      SecretId: secretName
+    }).promise();
     
-    res.json(health);
+    return JSON.parse(result.SecretString);
+  } catch (error) {
+    console.error('Erro ao recuperar secret:', error);
+    throw error;
+  }
+}
+```
+
+## 📈 Otimização de Performance
+
+### 1. Otimização da Lambda
+
+#### Configuração de Memória
+```bash
+# Otimizar memória baseada no uso
+aws lambda update-function-configuration \
+  --function-name GoodWeSolarAssistant \
+  --memory-size 512
+```
+
+#### Connection Pooling
+```javascript
+// Pool de conexões para APIs
+const axios = require('axios');
+
+const apiClient = axios.create({
+  baseURL: process.env.GOODWE_API_URL,
+  timeout: 5000,
+  maxRedirects: 5,
+  // Pool de conexões
+  httpAgent: new require('http').Agent({
+    keepAlive: true,
+    maxSockets: 10
+  }),
+  httpsAgent: new require('https').Agent({
+    keepAlive: true,
+    maxSockets: 10
+  })
 });
 ```
 
-## 📈 Otimização Pós-Lançamento
+### 2. Cache e Otimização
 
-### 1. Análise de Uso
-- Revisar logs de conversação
-- Identificar padrões de falha
-- Otimizar intents mais utilizados
-- Adicionar utterances baseadas no uso real
-
-### 2. A/B Testing
+#### Cache de Respostas
 ```javascript
-// Feature flags para testes
-const isFeatureEnabled = (featureName, userId) => {
-    const hash = hashFunction(userId + featureName);
-    return hash % 100 < 50; // 50% dos usuários
-};
+// Cache simples em memória
+const cache = new Map();
 
-if (isFeatureEnabled('newResponse', userId)) {
-    speakOutput = 'Nova versão da resposta';
-} else {
-    speakOutput = 'Versão original da resposta';
+function getCachedResponse(key, ttl = 300000) { // 5 minutos
+  const cached = cache.get(key);
+  if (cached && Date.now() - cached.timestamp < ttl) {
+    return cached.data;
+  }
+  return null;
+}
+
+function setCachedResponse(key, data) {
+  cache.set(key, {
+    data,
+    timestamp: Date.now()
+  });
 }
 ```
 
-### 3. Feedback dos Usuários
-- Implementar sistema de rating
-- Coletar feedback via cards
-- Monitorar reviews na store
-- Responder a comentários
+## 🧪 Testes de Deploy
 
-## ⚡ Próximos Passos
+### 1. Testes de Integração
 
-1. **Execute** o checklist de pré-deploy
-2. **Configure** ambiente de produção
-3. **Submeta** para certificação
-4. **Monitore** performance pós-lançamento
-5. **Explore** [Casos Avançados](05-casos-avancados.md)
+#### Script de Teste Pós-Deploy
+```javascript
+// test-post-deploy.js
+const axios = require('axios');
+
+async function testDeployment() {
+  console.log('🧪 Testando deploy...');
+  
+  const testCases = [
+    {
+      name: 'Health Check',
+      test: async () => {
+        const response = await axios.get('https://api.goodwe.com/health');
+        return response.status === 200;
+      }
+    },
+    {
+      name: 'Lambda Invocation',
+      test: async () => {
+        const lambda = new AWS.Lambda();
+        const result = await lambda.invoke({
+          FunctionName: 'GoodWeSolarAssistant',
+          Payload: JSON.stringify({
+            request: {
+              type: 'LaunchRequest'
+            }
+          })
+        }).promise();
+        
+        return result.StatusCode === 200;
+      }
+    }
+  ];
+  
+  for (const testCase of testCases) {
+    try {
+      const result = await testCase.test();
+      console.log(`${result ? '✅' : '❌'} ${testCase.name}`);
+    } catch (error) {
+      console.log(`❌ ${testCase.name}: ${error.message}`);
+    }
+  }
+}
+
+testDeployment();
+```
+
+### 2. Testes de Performance
+
+#### Load Testing
+```bash
+# Instalar Artillery
+npm install -g artillery
+
+# Configurar teste de carga
+cat > load-test.yml << EOF
+config:
+  target: 'https://api.goodwe.com'
+  phases:
+    - duration: 60
+      arrivalRate: 10
+scenarios:
+  - name: "Test API endpoints"
+    requests:
+      - get:
+          url: "/health"
+      - get:
+          url: "/data/paginated?limit=1"
+EOF
+
+# Executar teste
+artillery run load-test.yml
+```
+
+## 🔄 Rollback e Recuperação
+
+### 1. Estratégia de Rollback
+
+#### Script de Rollback
+```bash
+#!/bin/bash
+# rollback.sh
+
+FUNCTION_NAME="GoodWeSolarAssistant"
+BACKUP_BUCKET="goodwe-lambda-backups"
+
+echo "🔄 Iniciando rollback..."
+
+# Listar versões disponíveis
+aws lambda list-versions-by-function --function-name $FUNCTION_NAME
+
+# Fazer rollback para versão anterior
+aws lambda update-alias \
+  --function-name $FUNCTION_NAME \
+  --name PROD \
+  --function-version $1
+
+echo "✅ Rollback concluído para versão $1"
+```
+
+#### Backup Automático
+```bash
+# Script de backup
+#!/bin/bash
+# backup.sh
+
+FUNCTION_NAME="GoodWeSolarAssistant"
+BACKUP_BUCKET="goodwe-lambda-backups"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+
+# Fazer backup da versão atual
+aws lambda get-function --function-name $FUNCTION_NAME > backup_${TIMESTAMP}.json
+
+# Upload para S3
+aws s3 cp backup_${TIMESTAMP}.json s3://$BACKUP_BUCKET/
+
+echo "✅ Backup criado: backup_${TIMESTAMP}.json"
+```
 
 ---
-**Anterior:** [← Exemplos Práticos](03-exemplos-praticos.md) | **Próximo:** [Casos Avançados →](05-casos-avancados.md)
+
+**Próximo**: [Casos Avançados](./05-casos-avancados.md)

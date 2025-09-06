@@ -110,7 +110,7 @@ Retorna informações gerais da API e endpoints disponíveis.
     "GET /data/hour/:{hour}":"Acessar dados pelas horas",
     "GET /analytics": "Análises e estatísticas",
     "GET /analytics/info": "Informações sobre endpoints de análise",
-    "GET /analytics/hourly":"Obter "
+    "GET /analytics/hourly":"Obter ",
     "GET /search": "Busca avançada e filtros",
     "GET /search/info": "Informações sobre endpoints de busca"
   }

@@ -1,228 +1,575 @@
-# 1. Conceitos Básicos - Alexa Skills
+# Conceitos Básicos - Integração Alexa Skills GoodWe
 
-## 🎯 O que são Alexa Skills?
+## 📋 Visão Geral
 
-Alexa Skills são aplicações de voz que estendem as capacidades da Amazon Alexa. Elas permitem que os usuários interajam com serviços e aplicações através de comandos de voz naturais.
+Este documento apresenta os conceitos fundamentais necessários para entender e implementar a integração entre as APIs GoodWe e Amazon Alexa Skills, permitindo controle por voz de sistemas de energia solar.
 
-## 📱 Tipos de Skills
+## 🏗️ Arquitetura da Solução
 
-### 1. **Custom Skills**
-- Maior flexibilidade e controle
-- Ideal para funcionalidades específicas
-- Requer desenvolvimento completo do backend
+### Componentes Principais
 
-### 2. **Smart Home Skills**
-- Controle de dispositivos IoT
-- Integração com sistema de casa inteligente
-- Comandos padronizados ("Alexa, ligue a luz")
-
-### 3. **Flash Briefing Skills**
-- Fornecimento de notícias e atualizações
-- Formato de áudio ou texto
-- Integração com feeds RSS/JSON
-
-### 4. **Music Skills**
-- Streaming de música
-- Controle de reprodução
-- Integração com serviços de música
-
-## 🏗️ Arquitetura de uma Alexa Skill
-
-```
-Usuário fala → Alexa Device → Amazon Voice Service → Alexa Skills Kit → Sua Aplicação
-                                      ↓
-Resposta ← Alexa Device ← Amazon Voice Service ← Alexa Skills Kit ← Sua Aplicação
+```mermaid
+graph TB
+    A[Usuário] --> B[Alexa Device]
+    B --> C[Alexa Service]
+    C --> D[Lambda Function]
+    D --> E[API Principal GoodWe]
+    D --> F[API Machine Learning]
+    E --> G[Banco de Dados]
+    F --> H[Modelo ML]
+    D --> I[Smart Home API]
+    I --> J[Dispositivos IoT]
 ```
 
-### Componentes Principais:
+### Fluxo de Dados
 
-#### 1. **Interaction Model (Modelo de Interação)**
+1. **Comando de Voz**: Usuário fala com dispositivo Alexa
+2. **Processamento**: Alexa Service converte fala em intents
+3. **Lambda**: Função AWS processa intent e chama APIs
+4. **APIs**: Integração com APIs GoodWe para dados
+5. **Resposta**: Retorno processado para o usuário
+
+## 🎯 Conceitos de Alexa Skills
+
+### O que é uma Alexa Skill?
+
+Uma Alexa Skill é uma aplicação de voz que estende as capacidades do Amazon Alexa, permitindo interações personalizadas através de comandos de voz.
+
+### Componentes Essenciais
+
+#### 1. Interaction Model
+Define como a skill interpreta comandos de voz:
+- **Intents**: Ações que a skill pode executar
+- **Utterances**: Frases que ativam os intents
+- **Slots**: Parâmetros extraídos dos comandos
+
+#### 2. Lambda Function
+Código backend que processa as requisições:
+- **Node.js/Python**: Linguagens suportadas
+- **AWS Lambda**: Serviço de computação serverless
+- **Handlers**: Funções que processam intents específicos
+
+#### 3. Smart Home API
+Para controle de dispositivos IoT:
+- **Discovery**: Descoberta de dispositivos
+- **Control**: Controle de dispositivos
+- **State Reporting**: Relatório de estados
+
+## 🔧 Estrutura de Intents
+
+### Categorias de Intents
+
+#### 1. Intents de Monitoramento
 ```json
 {
-  "intents": [
+  "intent": "GetSystemStatus",
+  "slots": [],
+  "samples": [
+    "qual o status do sistema",
+    "como está o sistema solar",
+    "status do sistema"
+  ]
+}
+```
+
+#### 2. Intents de Dados Energéticos
+```json
+{
+  "intent": "GetEnergyGeneration",
+  "slots": [
     {
-      "name": "GetWeatherIntent",
-      "samples": [
-        "qual é o tempo hoje",
-        "como está o clima",
-        "vai chover hoje"
-      ],
-      "slots": [
-        {
-          "name": "city",
-          "type": "AMAZON.US_CITY"
-        }
-      ]
+      "name": "TimePeriod",
+      "type": "AMAZON.Duration"
+    }
+  ],
+  "samples": [
+    "quanta energia estou gerando",
+    "geração de energia agora",
+    "quanto estou produzindo"
+  ]
+}
+```
+
+#### 3. Intents de Bateria
+```json
+{
+  "intent": "GetBatteryLevel",
+  "slots": [],
+  "samples": [
+    "qual o nível da bateria",
+    "como está a bateria",
+    "status da bateria"
+  ]
+}
+```
+
+#### 4. Intents de Análise
+```json
+{
+  "intent": "GetEfficiencyAnalysis",
+  "slots": [
+    {
+      "name": "AnalysisType",
+      "type": "AnalysisType"
+    }
+  ],
+  "samples": [
+    "análise de eficiência",
+    "como está a eficiência",
+    "relatório de eficiência"
+  ]
+}
+```
+
+### Slots Personalizados
+
+#### AnalysisType
+```json
+{
+  "name": "AnalysisType",
+  "values": [
+    {
+      "id": "daily",
+      "name": {
+        "value": "diária"
+      }
+    },
+    {
+      "id": "weekly", 
+      "name": {
+        "value": "semanal"
+      }
+    },
+    {
+      "id": "monthly",
+      "name": {
+        "value": "mensal"
+      }
     }
   ]
 }
 ```
 
-#### 2. **Backend Service (AWS Lambda)**
-```javascript
-const Alexa = require('ask-sdk-core');
-
-const LaunchRequestHandler = {
-    canHandle(handlerInput) {
-        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'LaunchRequest';
+#### EnergyMetric
+```json
+{
+  "name": "EnergyMetric",
+  "values": [
+    {
+      "id": "generation",
+      "name": {
+        "value": "geração"
+      }
     },
-    handle(handlerInput) {
-        const speakOutput = 'Olá! Como posso ajudar você hoje?';
-        return handlerInput.responseBuilder
-            .speak(speakOutput)
-            .reprompt(speakOutput)
-            .getResponse();
+    {
+      "id": "consumption",
+      "name": {
+        "value": "consumo"
+      }
+    },
+    {
+      "id": "battery",
+      "name": {
+        "value": "bateria"
+      }
     }
+  ]
+}
+```
+
+## 🗣️ Utterances e Padrões de Fala
+
+### Padrões de Comandos
+
+#### 1. Comandos Diretos
+- "Alexa, qual o status do sistema?"
+- "Alexa, quanta energia estou gerando?"
+- "Alexa, como está a bateria?"
+
+#### 2. Comandos com Parâmetros
+- "Alexa, me mostre a geração de energia de hoje"
+- "Alexa, qual a eficiência semanal?"
+- "Alexa, me dê o relatório mensal"
+
+#### 3. Comandos de Controle
+- "Alexa, ative o modo de emergência"
+- "Alexa, configure a bateria para modo econômico"
+- "Alexa, agende manutenção para amanhã"
+
+### Variações de Linguagem
+
+#### Português Brasileiro
+- Uso de "você" e "seu/sua"
+- Contração de palavras
+- Gírias regionais aceitas
+
+#### Exemplos de Variações
+```
+"qual o status" → "como está o status"
+"geração de energia" → "produção de energia"
+"nível da bateria" → "carga da bateria"
+```
+
+## 🔌 Integração com APIs
+
+### API Principal GoodWe
+
+#### Endpoints Utilizados
+```javascript
+const API_ENDPOINTS = {
+  // Dados básicos
+  DATA: 'http://localhost:3000/data',
+  DATA_PAGINATED: 'http://localhost:3000/data/paginated',
+  DATA_HOUR: 'http://localhost:3000/data/hour',
+  
+  // Análises
+  ANALYTICS_STATS: 'http://localhost:3000/analytics/stats',
+  ANALYTICS_HOURLY: 'http://localhost:3000/analytics/hourly',
+  ANALYTICS_EFFICIENCY: 'http://localhost:3000/analytics/efficiency',
+  
+  // Busca
+  SEARCH_ADVANCED: 'http://localhost:3000/search/advanced',
+  SEARCH_PEAKS: 'http://localhost:3000/search/peaks',
+  SEARCH_ANOMALIES: 'http://localhost:3000/search/anomalies'
 };
 ```
 
-## 🔧 Configuração do Ambiente
-
-### Pré-requisitos:
-1. **Conta Amazon Developer** (gratuita)
-2. **AWS Account** (para hospedagem Lambda)
-3. **Node.js** ou **Python** instalado
-4. **ASK CLI** (Alexa Skills Kit Command Line Interface)
-
-### Instalação do ASK CLI:
-```bash
-npm install -g ask-cli
-ask configure
-```
-
-### Estrutura de Projeto:
-```
-minha-skill/
-├── skill-package/
-│   ├── interactionModels/
-│   │   └── custom/
-│   │       └── pt-BR.json
-│   └── skill.json
-├── lambda/
-│   ├── index.js
-│   ├── package.json
-│   └── util.js
-└── .ask/
-    └── config
-```
-
-## 📝 Conceitos Fundamentais
-
-### **Intents (Intenções)**
-Representam ações que o usuário quer realizar:
-- `GetWeatherIntent` - obter informações do tempo
-- `PlayMusicIntent` - reproduzir música
-- `OrderPizzaIntent` - fazer pedido de pizza
-
-### **Utterances (Expressões)**
-Frases que os usuários podem falar para acionar um intent:
-```
-GetWeatherIntent:
-- "Como está o tempo?"
-- "Vai chover hoje?"
-- "Qual a temperatura?"
-```
-
-### **Slots (Parâmetros)**
-Variáveis dentro das utterances:
-```
-"Qual o tempo em {city}"
-"Toque música de {artist}"
-"Defina alarme para {time}"
-```
-
-### **Session Attributes**
-Dados persistidos durante uma sessão:
+#### Tratamento de Respostas
 ```javascript
-const sessionAttributes = handlerInput.attributesManager.getSessionAttributes();
-sessionAttributes.userName = 'João';
-handlerInput.attributesManager.setSessionAttributes(sessionAttributes);
+async function getSystemStatus() {
+  try {
+    const response = await fetch(`${API_BASE}/data/paginated?limit=1`);
+    const data = await response.json();
+    
+    if (data.success) {
+      return formatSystemStatus(data.data[0]);
+    } else {
+      throw new Error('Erro ao obter dados do sistema');
+    }
+  } catch (error) {
+    console.error('Erro na API:', error);
+    return 'Desculpe, não consegui obter o status do sistema';
+  }
+}
 ```
 
-## 🎤 Fluxo de Interação
+### API Machine Learning
 
-### 1. **Invocação**
-```
-"Alexa, abra minha skill personalizada"
-"Alexa, peça para o assistente do tempo a previsão"
-```
-
-### 2. **Processamento**
-- Alexa converte voz em texto
-- Identifica o intent e extrai slots
-- Envia request para seu backend
-
-### 3. **Resposta**
+#### Predições Climáticas
 ```javascript
-return handlerInput.responseBuilder
-    .speak('A temperatura hoje é 25 graus')
-    .withSimpleCard('Previsão do Tempo', 'Hoje: 25°C, ensolarado')
-    .getResponse();
+async function getWeatherPrediction(weatherData) {
+  try {
+    const response = await fetch(`${ML_API_BASE}/predict`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(weatherData)
+    });
+    
+    const prediction = await response.json();
+    return formatPrediction(prediction);
+  } catch (error) {
+    console.error('Erro na predição:', error);
+    return 'Não foi possível obter a predição climática';
+  }
+}
 ```
 
-## 🛠️ Ferramentas de Desenvolvimento
+## 🏠 Smart Home Integration
 
-### **1. Alexa Developer Console**
-- Interface web para configurar skills
-- Editor de interaction model
-- Simulador para testes
+### Dispositivos Suportados
 
-### **2. ASK SDK**
-- **Node.js**: `ask-sdk-core`
-- **Python**: `ask-sdk-core`
-- **Java**: `ask-java-sdk-core`
+#### 1. Inversores Solares
+```json
+{
+  "endpointId": "inverter-001",
+  "friendlyName": "Inversor Principal",
+  "description": "Inversor solar GoodWe",
+  "manufacturerName": "GoodWe",
+  "displayCategories": ["SWITCH"],
+  "capabilities": [
+    {
+      "type": "AlexaInterface",
+      "interface": "Alexa.PowerController",
+      "properties": {
+        "supported": [
+          {
+            "name": "powerState"
+          }
+        ]
+      }
+    }
+  ]
+}
+```
 
-### **3. Alexa Simulator**
-- Teste sem dispositivo físico
-- Debug de requests/responses
-- Visualização de cards
+#### 2. Baterias
+```json
+{
+  "endpointId": "battery-001", 
+  "friendlyName": "Bateria Solar",
+  "description": "Sistema de baterias GoodWe",
+  "manufacturerName": "GoodWe",
+  "displayCategories": ["BATTERY"],
+  "capabilities": [
+    {
+      "type": "AlexaInterface",
+      "interface": "Alexa.PercentageController",
+      "properties": {
+        "supported": [
+          {
+            "name": "percentage"
+          }
+        ]
+      }
+    }
+  ]
+}
+```
 
-### **4. Developer Tools**
-- **ASK CLI** - linha de comando
-- **Alexa Skills Toolkit** (VS Code)
-- **Bespoken Tools** - testing framework
+### Controles por Voz
 
-## 📊 Tipos de Resposta
+#### Comandos de Controle
+- "Alexa, ligue o inversor"
+- "Alexa, desligue o sistema solar"
+- "Alexa, configure a bateria para 80%"
+- "Alexa, ative o modo de emergência"
 
-### **1. Resposta de Voz (Speech)**
+## 📊 Estrutura de Dados
+
+### Formato de Resposta Padrão
+
 ```javascript
-.speak('Olá, bem-vindo à minha skill!')
+const responseFormat = {
+  version: "1.0",
+  response: {
+    outputSpeech: {
+      type: "SSML",
+      ssml: "<speak>Resposta formatada</speak>"
+    },
+    card: {
+      type: "Standard",
+      title: "Título da Resposta",
+      content: "Conteúdo detalhado",
+      image: {
+        smallImageUrl: "url_imagem_pequena",
+        largeImageUrl: "url_imagem_grande"
+      }
+    },
+    shouldEndSession: false
+  }
+};
 ```
 
-### **2. Cards Visuais**
+### Tratamento de Erros
+
 ```javascript
-.withSimpleCard('Título', 'Conteúdo do card')
-.withStandardCard('Título', 'Texto', smallImageUrl, largeImageUrl)
+function createErrorResponse(errorMessage) {
+  return {
+    version: "1.0",
+    response: {
+      outputSpeech: {
+        type: "PlainText",
+        text: errorMessage
+      },
+      shouldEndSession: true
+    }
+  };
+}
 ```
 
-### **3. Repromt (Para manter sessão ativa)**
+## 🔒 Segurança e Autenticação
+
+### Autenticação de APIs
+
+#### API Keys
 ```javascript
-.reprompt('Como posso ajudar você?')
+const API_CONFIG = {
+  goodwe: {
+    baseUrl: process.env.GOODWE_API_URL,
+    apiKey: process.env.GOODWE_API_KEY,
+    timeout: 5000
+  },
+  ml: {
+    baseUrl: process.env.ML_API_URL,
+    apiKey: process.env.ML_API_KEY,
+    timeout: 10000
+  }
+};
 ```
 
-### **4. Diretivas (Para dispositivos com tela)**
+#### Rate Limiting
 ```javascript
-.addDirective({
-    type: 'Alexa.Presentation.APL.RenderDocument',
-    document: aplDocument,
-    datasources: aplDataSources
-})
+const rateLimiter = {
+  requests: new Map(),
+  maxRequests: 100,
+  windowMs: 60000, // 1 minuto
+  
+  isAllowed(userId) {
+    const now = Date.now();
+    const userRequests = this.requests.get(userId) || [];
+    
+    // Remove requisições antigas
+    const recentRequests = userRequests.filter(
+      time => now - time < this.windowMs
+    );
+    
+    if (recentRequests.length >= this.maxRequests) {
+      return false;
+    }
+    
+    recentRequests.push(now);
+    this.requests.set(userId, recentRequests);
+    return true;
+  }
+};
 ```
 
-## ⚡ Próximos Passos
+## 📱 Experiência do Usuário
 
-1. **Configure seu ambiente** seguindo os passos acima
-2. **Crie sua primeira skill** no Developer Console
-3. **Implemente o backend** usando AWS Lambda
-4. **Teste** usando o simulador
-5. **Avance** para [Desenvolvimento de Skills](02-desenvolvimento.md)
+### Design de Conversação
 
-## 🔗 Links Úteis
+#### 1. Saudações e Despedidas
+```javascript
+const GREETINGS = [
+  "Olá! Como posso ajudar com seu sistema solar?",
+  "Bem-vindo ao assistente GoodWe!",
+  "Sistema solar conectado. Em que posso ajudar?"
+];
 
-- [Amazon Developer Portal](https://developer.amazon.com/alexa)
-- [ASK SDK Documentation](https://ask-sdk-for-nodejs.readthedocs.io/)
-- [Alexa Design Guide](https://developer.amazon.com/en-US/docs/alexa/alexa-design/get-started.html)
-- [Voice Design Guide](https://developer.amazon.com/en-US/docs/alexa/alexa-design/design-process.html)
+const GOODBYES = [
+  "Até logo! Seu sistema solar está monitorado.",
+  "Tchau! Qualquer coisa, é só chamar.",
+  "Até a próxima! Energia solar sempre funcionando."
+];
+```
+
+#### 2. Confirmações e Feedback
+```javascript
+function createConfirmation(message, action) {
+  return {
+    version: "1.0",
+    response: {
+      outputSpeech: {
+        type: "SSML",
+        ssml: `<speak>${message}</speak>`
+      },
+      reprompt: {
+        outputSpeech: {
+          type: "PlainText",
+          text: "Posso ajudar com mais alguma coisa?"
+        }
+      },
+      shouldEndSession: false
+    }
+  };
+}
+```
+
+### Personalização
+
+#### Perfis de Usuário
+```javascript
+const userProfiles = {
+  'user123': {
+    name: 'João',
+    preferences: {
+      language: 'pt-BR',
+      timezone: 'America/Sao_Paulo',
+      units: 'metric',
+      notifications: true
+    },
+    systemConfig: {
+      inverterId: 'inverter-001',
+      batteryId: 'battery-001',
+      alertThresholds: {
+        lowBattery: 20,
+        highGeneration: 80
+      }
+    }
+  }
+};
+```
+
+## 🧪 Testes e Validação
+
+### Testes de Intents
+
+#### Teste Básico
+```javascript
+const testCases = [
+  {
+    input: "qual o status do sistema",
+    expectedIntent: "GetSystemStatus",
+    expectedSlots: {}
+  },
+  {
+    input: "quanta energia estou gerando hoje",
+    expectedIntent: "GetEnergyGeneration", 
+    expectedSlots: {
+      TimePeriod: "today"
+    }
+  }
+];
+```
+
+#### Teste de Integração
+```javascript
+async function testAPIIntegration() {
+  try {
+    // Teste API Principal
+    const systemStatus = await getSystemStatus();
+    console.assert(systemStatus !== null, 'Status do sistema deve ser obtido');
+    
+    // Teste API ML
+    const prediction = await getWeatherPrediction(testWeatherData);
+    console.assert(prediction.probability !== undefined, 'Predição deve ter probabilidade');
+    
+    console.log('✅ Todos os testes de integração passaram');
+  } catch (error) {
+    console.error('❌ Teste de integração falhou:', error);
+  }
+}
+```
+
+## 📈 Monitoramento e Logs
+
+### Estrutura de Logs
+
+```javascript
+const logger = {
+  info: (message, data = {}) => {
+    console.log(JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level: 'INFO',
+      message,
+      data
+    }));
+  },
+  
+  error: (message, error = {}) => {
+    console.error(JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level: 'ERROR', 
+      message,
+      error: {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      }
+    }));
+  }
+};
+```
+
+### Métricas Importantes
+
+- **Taxa de Sucesso**: % de comandos executados com sucesso
+- **Tempo de Resposta**: Latência média das APIs
+- **Uso de Intents**: Frequência de uso de cada intent
+- **Erros**: Categorização e frequência de erros
 
 ---
-**Próximo:** [Desenvolvimento de Skills →](02-desenvolvimento.md)
+
+**Próximo**: [Guia de Desenvolvimento](./02-desenvolvimento.md)

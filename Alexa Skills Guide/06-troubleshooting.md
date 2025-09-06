@@ -1,631 +1,828 @@
-# 6. Troubleshooting e FAQ
+# Troubleshooting - Alexa Skills GoodWe
 
-## 🐛 Problemas Comuns e Soluções
+## 📋 Visão Geral
 
-### 1. Problemas de Desenvolvimento
+Este guia fornece soluções para problemas comuns, debugging avançado e procedimentos de recuperação para a Alexa Skill GoodWe.
 
-#### ❌ Skill não responde ou não inicia
-**Sintomas:**
-- "Não sei como ajudar com isso"
-- Skill não abre quando invocada
-- Timeout de resposta
+## 🔍 Problemas Comuns e Soluções
+
+### 1. Problemas de Conectividade
+
+#### Problema: "Desculpe, não consegui obter o status do sistema"
+
+**Possíveis Causas:**
+- API GoodWe indisponível
+- Timeout na requisição
+- Credenciais inválidas
+- Problemas de rede
 
 **Soluções:**
+
 ```javascript
-// 1. Verificar logs do CloudWatch
-console.log('LaunchRequest received:', JSON.stringify(handlerInput.requestEnvelope, null, 2));
-
-// 2. Validar handler registration
-exports.handler = Alexa.SkillBuilders.custom()
-    .addRequestHandlers(
-        LaunchRequestHandler, // Certifique-se que está registrado
-        // ... outros handlers
-    )
-    .addErrorHandlers(ErrorHandler)
-    .lambda();
-
-// 3. Verificar canHandle method
-const LaunchRequestHandler = {
-    canHandle(handlerInput) {
-        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'LaunchRequest';
-    },
-    handle(handlerInput) {
-        // Implementação
-    }
-};
-```
-
-#### ❌ Intent não é reconhecido
-**Sintomas:**
-- IntentReflectorHandler sempre executado
-- "Não entendi esse comando"
-
-**Soluções:**
-```json
-// 1. Verificar interaction model - utterances suficientes
-{
-  "name": "GetWeatherIntent",
-  "samples": [
-    "qual o tempo",
-    "como está o clima",
-    "previsão do tempo",
-    "vai chover",
-    "como está o tempo hoje",
-    "me diga o clima"
-  ]
+// 1. Verificar status da API
+async function checkAPIStatus() {
+  try {
+    const response = await axios.get(`${API_CONFIG.goodwe.baseUrl}/health`, {
+      timeout: 5000
+    });
+    console.log('API Status:', response.data);
+    return response.data.status === 'OK';
+  } catch (error) {
+    console.error('API Error:', error.message);
+    return false;
+  }
 }
 
-// 2. Build do modelo
-ask api update-interaction-model --skill-id YOUR_SKILL_ID --stage development --locale pt-BR --interaction-model file:models/pt-BR.json
-
-// 3. Aguardar build completion
-ask api get-interaction-model-build-status --skill-id YOUR_SKILL_ID --stage development --locale pt-BR
-```
-
-#### ❌ Slots não são preenchidos corretamente
-**Sintomas:**
-- Slot value sempre null/undefined
-- Slot não captura variações
-
-**Soluções:**
-```javascript
-// 1. Validação robusta de slots
-const slotValue = Alexa.getSlotValue(handlerInput.requestEnvelope, 'slotName');
-const resolvedValue = Alexa.getSlotValue(handlerInput.requestEnvelope, 'slotName', 'SYNONYM');
-
-if (!slotValue) {
-    return handlerInput.responseBuilder
-        .speak('Não entendi o valor. Pode repetir?')
-        .addElicitSlotDirective('slotName')
-        .getResponse();
-}
-
-// 2. Slot types mais específicos
-{
-  "types": [
-    {
-      "name": "CityType",
-      "values": [
-        {
-          "name": {
-            "value": "São Paulo",
-            "synonyms": ["SP", "sampa", "são paulo", "capital paulista"]
-          }
-        }
-      ]
-    }
-  ]
-}
-
-// 3. Usar slot validation
-{
-  "name": "GetWeatherIntent",
-  "slots": [
-    {
-      "name": "city",
-      "type": "CityType",
-      "samples": [
-        "em {city}",
-        "na cidade de {city}",
-        "para {city}"
-      ]
-    }
-  ]
-}
-```
-
-### 2. Problemas de Deploy
-
-#### ❌ Lambda function timeout
-**Sintomas:**
-- Skill para de responder após 8 segundos
-- Timeout errors nos logs
-
-**Soluções:**
-```javascript
-// 1. Otimizar performance
-const https = require('https');
-const keepAliveAgent = new https.Agent({ keepAlive: true });
-
-// Reutilizar conexões
-const fetchWithTimeout = async (url, options = {}) => {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout
-    
+// 2. Implementar retry com backoff
+async function apiCallWithRetry(url, options = {}, maxRetries = 3) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-        const response = await fetch(url, {
-            ...options,
-            agent: keepAliveAgent,
-            signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-        return response;
+      const response = await axios.get(url, {
+        ...options,
+        timeout: 5000 * attempt // Aumentar timeout a cada tentativa
+      });
+      return response;
     } catch (error) {
-        clearTimeout(timeoutId);
+      console.error(`Tentativa ${attempt} falhou:`, error.message);
+      
+      if (attempt === maxRetries) {
         throw error;
+      }
+      
+      // Backoff exponencial
+      await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt - 1)));
     }
-};
-
-// 2. Implementar cache
-const cache = new Map();
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutos
-
-async function getCachedData(key, fetchFunction) {
-    const cached = cache.get(key);
-    
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-        return cached.data;
-    }
-    
-    const data = await fetchFunction();
-    cache.set(key, { data, timestamp: Date.now() });
-    return data;
+  }
 }
 
-// 3. Configurar timeout no AWS Lambda
-// Memory: 512MB (mínimo recomendado)
-// Timeout: 30 segundos (máximo para Alexa)
+// 3. Fallback para dados em cache
+async function getSystemStatusWithFallback() {
+  try {
+    const data = await apiCallWithRetry(`${API_CONFIG.goodwe.baseUrl}/data/paginated?limit=1`);
+    return data.data[0];
+  } catch (error) {
+    console.error('API falhou, usando cache:', error);
+    
+    // Usar dados em cache se disponível
+    const cachedData = await getCachedData('system_status');
+    if (cachedData) {
+      return cachedData;
+    }
+    
+    throw new Error('Sistema temporariamente indisponível');
+  }
+}
 ```
 
-#### ❌ Problemas de permissão IAM
-**Sintomas:**
-- "Access Denied" nos logs
-- Função não consegue acessar DynamoDB/outros serviços
+#### Problema: "Erro de autenticação"
 
 **Soluções:**
-```json
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Action": [
-                "dynamodb:GetItem",
-                "dynamodb:PutItem",
-                "dynamodb:UpdateItem",
-                "dynamodb:DeleteItem",
-                "dynamodb:Query",
-                "dynamodb:Scan"
-            ],
-            "Resource": "arn:aws:dynamodb:us-east-1:123456789:table/YourTableName"
-        },
-        {
-            "Effect": "Allow",
-            "Action": [
-                "logs:CreateLogGroup",
-                "logs:CreateLogStream", 
-                "logs:PutLogEvents"
-            ],
-            "Resource": "*"
-        }
-    ]
+
+```javascript
+// Verificar e renovar token
+async function refreshAPIToken() {
+  try {
+    const response = await axios.post(`${API_CONFIG.goodwe.baseUrl}/auth/refresh`, {
+      refresh_token: process.env.GOODWE_REFRESH_TOKEN
+    });
+    
+    process.env.GOODWE_API_KEY = response.data.access_token;
+    return true;
+  } catch (error) {
+    console.error('Erro ao renovar token:', error);
+    return false;
+  }
 }
-```
 
-### 3. Problemas de Certificação
-
-#### ❌ Skill rejeitada na certificação
-**Razões comuns:**
-
-1. **Invocation name inadequado**
-```json
-// ❌ Muito genérico
-"invocationName": "app"
-
-// ✅ Específico e único
-"invocationName": "assistente pessoal empresa"
-```
-
-2. **Help intent inadequado**
-```javascript
-// ❌ Ajuda genérica
-const HelpIntentHandler = {
-    handle(handlerInput) {
-        return handlerInput.responseBuilder
-            .speak('Como posso ajudar?')
-            .getResponse();
-    }
-};
-
-// ✅ Ajuda específica e útil
-const HelpIntentHandler = {
-    handle(handlerInput) {
-        const speakOutput = `Eu posso ajudar você com:
-            - Previsão do tempo: diga "qual o tempo hoje"
-            - Notícias: diga "quais as notícias"
-            - Lembretes: diga "criar lembrete"
-            O que gostaria de fazer?`;
-            
-        return handlerInput.responseBuilder
-            .speak(speakOutput)
-            .reprompt('Como posso ajudar você?')
-            .getResponse();
-    }
-};
-```
-
-3. **Tratamento inadequado de SessionEndedRequest**
-```javascript
-// ✅ Sempre incluir
-const SessionEndedRequestHandler = {
-    canHandle(handlerInput) {
-        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'SessionEndedRequest';
-    },
-    handle(handlerInput) {
-        console.log(`Session ended: ${JSON.stringify(handlerInput.requestEnvelope)}`);
-        return handlerInput.responseBuilder.getResponse();
-    }
-};
-```
-
-### 4. Problemas de Performance
-
-#### ❌ Resposta lenta da skill
-**Otimizações:**
-
-```javascript
-// 1. Paralelizar calls de API
-const [weatherData, newsData] = await Promise.all([
-    getWeatherData(city),
-    getNewsData(category)
-]);
-
-// 2. Implementar connection pooling
-const AWS = require('aws-sdk');
-const dynamodb = new AWS.DynamoDB.DocumentClient({
-    maxRetries: 3,
-    retryDelayOptions: {
-        customBackoff: function(retryCount) {
-            return Math.pow(2, retryCount) * 100;
-        }
-    }
-});
-
-// 3. Otimizar queries DynamoDB
-const params = {
-    TableName: 'UserData',
-    KeyConditionExpression: 'userId = :userId',
-    ExpressionAttributeValues: {
-        ':userId': userId
-    },
-    Limit: 10 // Limitar results
-};
-
-// 4. Usar lazy loading
-let cachedUserData = null;
-
-async function getUserData(userId) {
-    if (!cachedUserData) {
-        cachedUserData = await dynamodb.get({
-            TableName: 'UserData',
-            Key: { userId }
-        }).promise();
+// Middleware de autenticação
+const authMiddleware = async (req, res, next) => {
+  try {
+    const response = await axios.get(`${API_CONFIG.goodwe.baseUrl}/verify`, {
+      headers: {
+        'Authorization': `Bearer ${process.env.GOODWE_API_KEY}`
+      }
+    });
+    
+    if (response.status === 401) {
+      const refreshed = await refreshAPIToken();
+      if (!refreshed) {
+        throw new Error('Falha na autenticação');
+      }
     }
     
-    return cachedUserData.Item;
+    next();
+  } catch (error) {
+    console.error('Erro de autenticação:', error);
+    throw error;
+  }
+};
+```
+
+### 2. Problemas de Performance
+
+#### Problema: Resposta lenta da skill
+
+**Diagnóstico:**
+
+```javascript
+// Middleware de monitoramento de performance
+const performanceMiddleware = (handlerInput, next) => {
+  const startTime = Date.now();
+  
+  return next(handlerInput).then(response => {
+    const duration = Date.now() - startTime;
+    
+    // Log de performance
+    console.log(`Performance: ${duration}ms`);
+    
+    // Enviar métrica para CloudWatch
+    sendMetric('ResponseTime', duration, 'Milliseconds');
+    
+    // Alertar se muito lento
+    if (duration > 5000) {
+      console.warn(`Resposta lenta detectada: ${duration}ms`);
+      sendAlert('SlowResponse', { duration });
+    }
+    
+    return response;
+  });
+};
+
+// Otimização de cache
+const cacheManager = {
+  cache: new Map(),
+  ttl: 300000, // 5 minutos
+  
+  get(key) {
+    const item = this.cache.get(key);
+    if (item && Date.now() - item.timestamp < this.ttl) {
+      return item.data;
+    }
+    this.cache.delete(key);
+    return null;
+  },
+  
+  set(key, data) {
+    this.cache.set(key, {
+      data,
+      timestamp: Date.now()
+    });
+  }
+};
+```
+
+**Soluções:**
+
+```javascript
+// 1. Implementar cache inteligente
+async function getCachedSystemData() {
+  const cacheKey = 'system_data';
+  let data = cacheManager.get(cacheKey);
+  
+  if (!data) {
+    data = await getSystemData();
+    cacheManager.set(cacheKey, data);
+  }
+  
+  return data;
+}
+
+// 2. Paralelizar requisições
+async function getMultipleData() {
+  const [systemData, weatherData, predictions] = await Promise.all([
+    getSystemData(),
+    getWeatherData(),
+    getPredictions()
+  ]);
+  
+  return { systemData, weatherData, predictions };
+}
+
+// 3. Otimizar queries de banco
+async function getOptimizedData() {
+  const query = `
+    SELECT fv_power, soc_percentage, battery_power, grid_power, load_power, timestamp
+    FROM system_data 
+    WHERE timestamp >= NOW() - INTERVAL '1 hour'
+    ORDER BY timestamp DESC 
+    LIMIT 1
+  `;
+  
+  const result = await db.query(query);
+  return result.rows[0];
 }
 ```
 
-## 🔍 Debugging Avançado
+### 3. Problemas de Intents
 
-### 1. Logs Estruturados
+#### Problema: Intent não reconhecido
+
+**Diagnóstico:**
 
 ```javascript
+// Debug de intents
+const debugIntent = (handlerInput) => {
+  const request = handlerInput.requestEnvelope.request;
+  
+  console.log('Request Type:', request.type);
+  console.log('Intent Name:', request.intent?.name);
+  console.log('Slots:', JSON.stringify(request.intent?.slots, null, 2));
+  console.log('Raw Request:', JSON.stringify(request, null, 2));
+};
+
+// Handler de fallback
+const FallbackHandler = {
+  canHandle(handlerInput) {
+    return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest';
+  },
+  
+  handle(handlerInput) {
+    debugIntent(handlerInput);
+    
+    const speechText = 'Desculpe, não entendi. Você pode perguntar sobre o status do sistema, geração de energia ou nível da bateria.';
+    
+    return handlerInput.responseBuilder
+      .speak(speechText)
+      .reprompt('Como posso ajudar?')
+      .getResponse();
+  }
+};
+```
+
+**Soluções:**
+
+```javascript
+// 1. Melhorar utterances
+const improvedUtterances = [
+  "qual o status do sistema",
+  "como está o sistema solar",
+  "status do sistema solar",
+  "sistema solar status",
+  "verificar sistema",
+  "checar sistema"
+];
+
+// 2. Implementar fuzzy matching
+const fuzzyMatch = (input, patterns) => {
+  const similarity = (a, b) => {
+    const longer = a.length > b.length ? a : b;
+    const shorter = a.length > b.length ? b : a;
+    
+    if (longer.length === 0) return 1.0;
+    
+    const editDistance = levenshteinDistance(longer, shorter);
+    return (longer.length - editDistance) / longer.length;
+  };
+  
+  let bestMatch = null;
+  let bestScore = 0;
+  
+  for (const pattern of patterns) {
+    const score = similarity(input.toLowerCase(), pattern.toLowerCase());
+    if (score > bestScore && score > 0.7) {
+      bestScore = score;
+      bestMatch = pattern;
+    }
+  }
+  
+  return bestMatch;
+};
+
+// 3. Log de intents para análise
+const logIntent = (intentName, slots, userId) => {
+  console.log(JSON.stringify({
+    timestamp: new Date().toISOString(),
+    intent: intentName,
+    slots,
+    userId,
+    type: 'intent_usage'
+  }));
+};
+```
+
+### 4. Problemas de Dados
+
+#### Problema: Dados inconsistentes ou inválidos
+
+**Validação de Dados:**
+
+```javascript
+// Validador de dados do sistema
+const validateSystemData = (data) => {
+  const errors = [];
+  
+  // Validar fv_power
+  if (typeof data.fv_power !== 'number' || data.fv_power < 0 || data.fv_power > 10000) {
+    errors.push('fv_power inválido');
+  }
+  
+  // Validar soc_percentage
+  if (typeof data.soc_percentage !== 'number' || data.soc_percentage < 0 || data.soc_percentage > 100) {
+    errors.push('soc_percentage inválido');
+  }
+  
+  // Validar timestamp
+  if (!data.timestamp || isNaN(new Date(data.timestamp).getTime())) {
+    errors.push('timestamp inválido');
+  }
+  
+  return {
+    isValid: errors.length === 0,
+    errors
+  };
+};
+
+// Sanitização de dados
+const sanitizeData = (data) => {
+  return {
+    fv_power: Math.max(0, Math.min(10000, data.fv_power || 0)),
+    soc_percentage: Math.max(0, Math.min(100, data.soc_percentage || 0)),
+    battery_power: Math.max(-5000, Math.min(5000, data.battery_power || 0)),
+    grid_power: Math.max(-5000, Math.min(5000, data.grid_power || 0)),
+    load_power: Math.max(0, Math.min(10000, data.load_power || 0)),
+    timestamp: data.timestamp || new Date().toISOString()
+  };
+};
+```
+
+**Tratamento de Dados Corrompidos:**
+
+```javascript
+// Detecção de anomalias
+const detectAnomalies = (data) => {
+  const anomalies = [];
+  
+  // Verificar se fv_power é muito alto para o horário
+  const hour = new Date(data.timestamp).getHours();
+  if (hour < 6 || hour > 18) {
+    if (data.fv_power > 100) {
+      anomalies.push('Geração solar alta durante a noite');
+    }
+  }
+  
+  // Verificar se soc_percentage mudou drasticamente
+  const previousData = getPreviousData();
+  if (previousData) {
+    const socChange = Math.abs(data.soc_percentage - previousData.soc_percentage);
+    if (socChange > 20) {
+      anomalies.push('Mudança drástica no nível da bateria');
+    }
+  }
+  
+  return anomalies;
+};
+
+// Correção automática de dados
+const correctData = (data, anomalies) => {
+  let correctedData = { ...data };
+  
+  for (const anomaly of anomalies) {
+    if (anomaly.includes('Geração solar alta durante a noite')) {
+      correctedData.fv_power = 0;
+    }
+    
+    if (anomaly.includes('Mudança drástica no nível da bateria')) {
+      // Usar média móvel para suavizar
+      const previousData = getPreviousData();
+      correctedData.soc_percentage = (data.soc_percentage + previousData.soc_percentage) / 2;
+    }
+  }
+  
+  return correctedData;
+};
+```
+
+## 🔧 Debugging Avançado
+
+### 1. Logging Estruturado
+
+```javascript
+// Configuração de logging avançado
 const winston = require('winston');
 
 const logger = winston.createLogger({
-    level: process.env.LOG_LEVEL || 'info',
-    format: winston.format.combine(
-        winston.format.timestamp(),
-        winston.format.errors({ stack: true }),
-        winston.format.json()
-    ),
-    transports: [
-        new winston.transports.Console()
-    ]
+  level: process.env.LOG_LEVEL || 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.errors({ stack: true }),
+    winston.format.json()
+  ),
+  transports: [
+    new winston.transports.Console({
+      format: winston.format.combine(
+        winston.format.colorize(),
+        winston.format.simple()
+      )
+    }),
+    new winston.transports.File({ 
+      filename: 'error.log', 
+      level: 'error',
+      maxsize: 5242880, // 5MB
+      maxFiles: 5
+    }),
+    new winston.transports.File({ 
+      filename: 'combined.log',
+      maxsize: 5242880,
+      maxFiles: 5
+    })
+  ]
 });
 
-// Usar em handlers
-const MyIntentHandler = {
-    handle(handlerInput) {
-        const userId = handlerInput.requestEnvelope.session.user.userId;
-        const sessionId = handlerInput.requestEnvelope.session.sessionId;
-        
-        logger.info('Intent started', {
-            intent: 'MyIntent',
-            userId: userId.substring(0, 10) + '...', // Não logar userId completo
-            sessionId,
-            timestamp: new Date().toISOString()
-        });
-        
-        try {
-            // Lógica do handler
-            const result = processIntent();
-            
-            logger.info('Intent completed successfully', {
-                intent: 'MyIntent',
-                sessionId,
-                duration: Date.now() - startTime
-            });
-            
-            return result;
-            
-        } catch (error) {
-            logger.error('Intent failed', {
-                intent: 'MyIntent',
-                sessionId,
-                error: error.message,
-                stack: error.stack
-            });
-            
-            throw error;
-        }
-    }
+// Logging contextual
+const logContext = (message, context = {}) => {
+  logger.info(message, {
+    ...context,
+    timestamp: new Date().toISOString(),
+    requestId: context.requestId || generateRequestId()
+  });
 };
 ```
 
-### 2. Testing Framework
+### 2. Tracing de Requisições
 
 ```javascript
-// test/handlers.test.js
-const Alexa = require('ask-sdk-core');
-const { handler } = require('../index');
-
-describe('Alexa Skill Tests', () => {
-    test('LaunchRequest should return welcome message', async () => {
-        const event = {
-            version: '1.0',
-            session: {
-                new: true,
-                sessionId: 'test-session',
-                user: { userId: 'test-user' }
-            },
-            request: {
-                type: 'LaunchRequest',
-                requestId: 'test-request',
-                timestamp: new Date().toISOString(),
-                locale: 'pt-BR'
-            }
-        };
-        
-        const context = {};
-        const result = await handler(event, context);
-        
-        expect(result.response.outputSpeech.ssml).toContain('Bem-vindo');
-        expect(result.response.shouldEndSession).toBe(false);
-    });
+// Sistema de tracing
+const traceManager = {
+  traces: new Map(),
+  
+  startTrace(requestId) {
+    const trace = {
+      requestId,
+      startTime: Date.now(),
+      steps: [],
+      errors: []
+    };
     
-    test('GetWeatherIntent should return weather info', async () => {
-        const event = {
-            // ... setup event for GetWeatherIntent
-            request: {
-                type: 'IntentRequest',
-                intent: {
-                    name: 'GetWeatherIntent',
-                    slots: {
-                        city: {
-                            name: 'city',
-                            value: 'São Paulo'
-                        }
-                    }
-                }
-            }
-        };
-        
-        const result = await handler(event, {});
-        
-        expect(result.response.outputSpeech.ssml).toContain('temperatura');
-    });
-});
+    this.traces.set(requestId, trace);
+    return trace;
+  },
+  
+  addStep(requestId, step, data = {}) {
+    const trace = this.traces.get(requestId);
+    if (trace) {
+      trace.steps.push({
+        step,
+        timestamp: Date.now(),
+        data
+      });
+    }
+  },
+  
+  addError(requestId, error, context = {}) {
+    const trace = this.traces.get(requestId);
+    if (trace) {
+      trace.errors.push({
+        error: error.message,
+        stack: error.stack,
+        context,
+        timestamp: Date.now()
+      });
+    }
+  },
+  
+  endTrace(requestId) {
+    const trace = this.traces.get(requestId);
+    if (trace) {
+      trace.endTime = Date.now();
+      trace.duration = trace.endTime - trace.startTime;
+      
+      // Log do trace completo
+      logger.info('Request trace completed', trace);
+      
+      this.traces.delete(requestId);
+    }
+  }
+};
 
-// Executar testes
-npm test
+// Middleware de tracing
+const tracingMiddleware = (handlerInput, next) => {
+  const requestId = generateRequestId();
+  traceManager.startTrace(requestId);
+  
+  return next(handlerInput).then(response => {
+    traceManager.endTrace(requestId);
+    return response;
+  }).catch(error => {
+    traceManager.addError(requestId, error);
+    traceManager.endTrace(requestId);
+    throw error;
+  });
+};
 ```
 
 ### 3. Monitoramento em Tempo Real
 
 ```javascript
-// CloudWatch Custom Metrics
-const AWS = require('aws-sdk');
-const cloudwatch = new AWS.CloudWatch();
-
-class MetricsCollector {
-    static async putMetric(metricName, value, unit = 'Count', dimensions = []) {
-        const params = {
-            Namespace: 'AlexaSkill/MySkill',
-            MetricData: [{
-                MetricName: metricName,
-                Value: value,
-                Unit: unit,
-                Dimensions: dimensions,
-                Timestamp: new Date()
-            }]
-        };
-        
-        try {
-            await cloudwatch.putMetricData(params).promise();
-        } catch (error) {
-            console.error('Failed to put metric:', error);
-        }
+// Dashboard de monitoramento
+const monitoringDashboard = {
+  metrics: {
+    requests: 0,
+    errors: 0,
+    avgResponseTime: 0,
+    activeUsers: new Set()
+  },
+  
+  updateMetrics(request, response, duration) {
+    this.metrics.requests++;
+    
+    if (response.statusCode >= 400) {
+      this.metrics.errors++;
     }
     
-    static async putTimer(metricName, startTime, dimensions = []) {
-        const duration = Date.now() - startTime;
-        await this.putMetric(metricName, duration, 'Milliseconds', dimensions);
+    // Atualizar tempo médio de resposta
+    this.metrics.avgResponseTime = 
+      (this.metrics.avgResponseTime * (this.metrics.requests - 1) + duration) / 
+      this.metrics.requests;
+    
+    // Adicionar usuário ativo
+    if (request.userId) {
+      this.metrics.activeUsers.add(request.userId);
     }
-}
-
-// Usar nos handlers
-const TimedHandler = {
-    async handle(handlerInput) {
-        const startTime = Date.now();
-        
-        try {
-            const result = await processRequest(handlerInput);
-            
-            await MetricsCollector.putMetric('RequestSuccess', 1);
-            await MetricsCollector.putTimer('RequestDuration', startTime);
-            
-            return result;
-            
-        } catch (error) {
-            await MetricsCollector.putMetric('RequestError', 1);
-            throw error;
-        }
-    }
+  },
+  
+  getHealthStatus() {
+    const errorRate = this.metrics.errors / this.metrics.requests;
+    
+    return {
+      status: errorRate > 0.1 ? 'unhealthy' : 'healthy',
+      metrics: this.metrics,
+      errorRate,
+      uptime: process.uptime()
+    };
+  }
 };
 ```
 
-## ❓ FAQ - Perguntas Frequentes
+## 🚨 Procedimentos de Emergência
 
-### **Q: Como fazer minha skill entender diferentes sotaques regionais?**
-**A:** Use utterances variadas e sinônimos:
-```json
-{
-  "samples": [
-    "tá chovendo",
-    "está chovendo", 
-    "tem chuva",
-    "vai chover",
-    "vai pingar",
-    "tá pingando"
-  ]
-}
-```
-
-### **Q: Posso usar minha skill em outros países?**
-**A:** Sim, configure locales adicionais:
-```json
-{
-  "publishingInformation": {
-    "locales": {
-      "pt-BR": { "name": "Minha Skill Brasil" },
-      "en-US": { "name": "My Skill US" },
-      "es-ES": { "name": "Mi Skill España" }
-    },
-    "distributionCountries": ["BR", "US", "ES"]
-  }
-}
-```
-
-### **Q: Como proteger dados sensíveis na skill?**
-**A:** 
-1. Use AWS KMS para encryption
-2. Não logue dados pessoais
-3. Implemente account linking
-4. Use HTTPS para todas as APIs
+### 1. Falha Total do Sistema
 
 ```javascript
-const AWS = require('aws-sdk');
-const kms = new AWS.KMS();
-
-async function encryptSensitiveData(data) {
-    const params = {
-        KeyId: process.env.KMS_KEY_ID,
-        Plaintext: Buffer.from(data)
-    };
-    
-    const result = await kms.encrypt(params).promise();
-    return result.CiphertextBlob.toString('base64');
-}
-```
-
-### **Q: Como implementar rate limiting?**
-**A:** Use DynamoDB para controle:
-```javascript
-async function checkRateLimit(userId) {
-    const now = Date.now();
-    const windowStart = now - (60 * 1000); // 1 minuto
-    
-    const params = {
-        TableName: 'RateLimits',
-        Key: { userId },
-        UpdateExpression: 'SET requestCount = if_not_exists(requestCount, :zero) + :incr, lastRequest = :now',
-        ConditionExpression: 'attribute_not_exists(lastRequest) OR lastRequest < :windowStart',
-        ExpressionAttributeValues: {
-            ':zero': 0,
-            ':incr': 1,
-            ':now': now,
-            ':windowStart': windowStart
-        }
-    };
+// Procedimento de recuperação de emergência
+const emergencyRecovery = {
+  async execute() {
+    console.log('🚨 Iniciando recuperação de emergência...');
     
     try {
-        await dynamodb.update(params).promise();
-        return true; // Permitido
+      // 1. Verificar status dos serviços
+      const services = await this.checkServices();
+      
+      // 2. Ativar modo de degradação
+      await this.activateDegradedMode();
+      
+      // 3. Notificar administradores
+      await this.notifyAdministrators();
+      
+      // 4. Tentar recuperação automática
+      const recovered = await this.attemptRecovery();
+      
+      if (recovered) {
+        console.log('✅ Recuperação bem-sucedida');
+        await this.notifyRecovery();
+      } else {
+        console.log('❌ Recuperação falhou, ativando procedimentos manuais');
+        await this.activateManualProcedures();
+      }
+      
     } catch (error) {
-        if (error.code === 'ConditionalCheckFailedException') {
-            return false; // Rate limit excedido
-        }
-        throw error;
+      console.error('Erro na recuperação de emergência:', error);
+      await this.activateManualProcedures();
     }
-}
+  },
+  
+  async checkServices() {
+    const services = ['api-goodwe', 'api-ml', 'database', 'redis'];
+    const status = {};
+    
+    for (const service of services) {
+      try {
+        const response = await axios.get(`${service}/health`, { timeout: 5000 });
+        status[service] = response.status === 200 ? 'up' : 'down';
+      } catch (error) {
+        status[service] = 'down';
+      }
+    }
+    
+    return status;
+  },
+  
+  async activateDegradedMode() {
+    // Ativar respostas básicas sem integração com APIs
+    process.env.DEGRADED_MODE = 'true';
+    
+    // Usar dados em cache
+    await this.loadCachedData();
+    
+    console.log('Modo degradado ativado');
+  }
+};
 ```
 
-### **Q: Como implementar multi-tenancy?**
-**A:** Use organization ID em todos os dados:
+### 2. Rollback de Emergência
+
+```bash
+#!/bin/bash
+# emergency-rollback.sh
+
+echo "🚨 Iniciando rollback de emergência..."
+
+# 1. Parar skill atual
+aws lambda update-function-configuration \
+  --function-name GoodWeSolarAssistant \
+  --environment Variables='{"EMERGENCY_MODE":"true"}'
+
+# 2. Deploy da versão anterior
+aws lambda update-function-code \
+  --function-name GoodWeSolarAssistant \
+  --s3-bucket goodwe-lambda-backups \
+  --s3-key previous-version.zip
+
+# 3. Verificar saúde
+sleep 30
+aws lambda invoke \
+  --function-name GoodWeSolarAssistant \
+  --payload '{"request":{"type":"LaunchRequest"}}' \
+  response.json
+
+# 4. Notificar equipe
+curl -X POST -H 'Content-type: application/json' \
+  --data '{"text":"🚨 Rollback de emergência executado"}' \
+  $SLACK_WEBHOOK
+
+echo "✅ Rollback concluído"
+```
+
+## 📊 Análise de Problemas
+
+### 1. Análise de Logs
+
 ```javascript
-async function getUserData(userId, organizationId) {
-    const params = {
-        TableName: 'UserData',
-        Key: {
-            pk: `ORG#${organizationId}`,
-            sk: `USER#${userId}`
-        }
+// Analisador de logs
+const logAnalyzer = {
+  async analyzeErrors(timeRange = '1h') {
+    const logs = await this.getLogs(timeRange);
+    const errors = logs.filter(log => log.level === 'error');
+    
+    const analysis = {
+      totalErrors: errors.length,
+      errorTypes: this.groupBy(errors, 'error.type'),
+      topErrors: this.getTopErrors(errors),
+      trends: this.analyzeTrends(errors)
     };
     
-    return await dynamodb.get(params).promise();
-}
+    return analysis;
+  },
+  
+  async analyzePerformance(timeRange = '1h') {
+    const logs = await this.getLogs(timeRange);
+    const performanceLogs = logs.filter(log => log.metric === 'ResponseTime');
+    
+    const analysis = {
+      avgResponseTime: this.calculateAverage(performanceLogs, 'value'),
+      p95ResponseTime: this.calculatePercentile(performanceLogs, 95),
+      slowRequests: performanceLogs.filter(log => log.value > 5000)
+    };
+    
+    return analysis;
+  }
+};
+```
+
+### 2. Alertas Inteligentes
+
+```javascript
+// Sistema de alertas inteligentes
+const intelligentAlerts = {
+  async processLogs(logs) {
+    const patterns = await this.detectPatterns(logs);
+    
+    for (const pattern of patterns) {
+      if (pattern.severity === 'critical') {
+        await this.sendCriticalAlert(pattern);
+      } else if (pattern.severity === 'warning') {
+        await this.sendWarningAlert(pattern);
+      }
+    }
+  },
+  
+  async detectPatterns(logs) {
+    const patterns = [];
+    
+    // Detectar picos de erro
+    const errorSpike = this.detectErrorSpike(logs);
+    if (errorSpike) {
+      patterns.push({
+        type: 'error_spike',
+        severity: 'critical',
+        description: 'Pico de erros detectado',
+        data: errorSpike
+      });
+    }
+    
+    // Detectar degradação de performance
+    const performanceDegradation = this.detectPerformanceDegradation(logs);
+    if (performanceDegradation) {
+      patterns.push({
+        type: 'performance_degradation',
+        severity: 'warning',
+        description: 'Degradação de performance detectada',
+        data: performanceDegradation
+      });
+    }
+    
+    return patterns;
+  }
+};
 ```
 
 ## 🛠️ Ferramentas de Debug
 
-### 1. ASK CLI Debug Commands
-```bash
-# Verificar skill status
-ask api get-skill-status --skill-id YOUR_SKILL_ID
+### 1. Debug Mode
 
-# Simular request
-ask dialog --locale pt-BR --replay-file replay.json
+```javascript
+// Modo de debug
+const debugMode = {
+  enabled: process.env.DEBUG === 'true',
+  
+  log(message, data = {}) {
+    if (this.enabled) {
+      console.log(`[DEBUG] ${message}`, JSON.stringify(data, null, 2));
+    }
+  },
+  
+  trace(functionName, args = {}) {
+    if (this.enabled) {
+      console.log(`[TRACE] ${functionName}`, args);
+    }
+  }
+};
 
-# Ver logs em tempo real
-ask logs --skill-id YOUR_SKILL_ID --stage development
+// Uso do debug mode
+const processSystemData = (data) => {
+  debugMode.trace('processSystemData', { input: data });
+  
+  const processed = validateSystemData(data);
+  debugMode.log('Validation result', processed);
+  
+  return processed;
+};
 ```
 
-### 2. Testing Tools
-```bash
-# Bespoken Tools para testing
-npm install -g bespoken-tools
+### 2. Teste de Conectividade
 
-# Criar test suite
-bst test test/test-suite.yml
+```javascript
+// Teste de conectividade
+const connectivityTest = {
+  async runFullTest() {
+    const results = {
+      timestamp: new Date().toISOString(),
+      tests: []
+    };
+    
+    // Teste API GoodWe
+    const goodweTest = await this.testAPI('GoodWe', API_CONFIG.goodwe.baseUrl);
+    results.tests.push(goodweTest);
+    
+    // Teste API ML
+    const mlTest = await this.testAPI('ML', API_CONFIG.ml.baseUrl);
+    results.tests.push(mlTest);
+    
+    // Teste banco de dados
+    const dbTest = await this.testDatabase();
+    results.tests.push(dbTest);
+    
+    // Teste Redis
+    const redisTest = await this.testRedis();
+    results.tests.push(redisTest);
+    
+    return results;
+  },
+  
+  async testAPI(name, url) {
+    const startTime = Date.now();
+    
+    try {
+      const response = await axios.get(`${url}/health`, { timeout: 5000 });
+      const duration = Date.now() - startTime;
+      
+      return {
+        name,
+        status: 'success',
+        duration,
+        responseTime: response.data.uptime
+      };
+    } catch (error) {
+      return {
+        name,
+        status: 'failed',
+        error: error.message,
+        duration: Date.now() - startTime
+      };
+    }
+  }
+};
 ```
-
-### 3. APL Testing
-```bash
-# APL Author tool para designs visuais
-# https://developer.amazon.com/alexa/console/ask/displays
-```
-
-## 📞 Suporte e Recursos
-
-### Canais Oficiais:
-- **Developer Forums**: [forums.developer.amazon.com](https://forums.developer.amazon.com)
-- **Stack Overflow**: Tag `alexa-skills-kit`
-- **GitHub**: [alexa/alexa-skills-kit-sdk-for-nodejs](https://github.com/alexa/alexa-skills-kit-sdk-for-nodejs)
-
-### Documentação:
-- **Official Docs**: [developer.amazon.com/docs/alexa](https://developer.amazon.com/docs/alexa)
-- **SDK Reference**: [ask-sdk-for-nodejs.readthedocs.io](https://ask-sdk-for-nodejs.readthedocs.io)
-
-### Comunidade Brasileira:
-- **Slack**: #alexa-brasil
-- **Telegram**: @alexabrasil
-- **Meetups**: Pesquise por "Alexa" na sua cidade
 
 ---
 
-**Parabéns!** 🎉 Você completou o guia completo de Alexa Skills. Com esse conhecimento, você está pronto para criar skills profissionais e robustas para a Amazon Alexa.
-
----
-**Anterior:** [← Casos Avançados](05-casos-avancados.md) | **Início:** [README](README.md)
+**Próximo**: [Integração com APIs](./GoodWe_AlexaSkill_Integration/01-api-integration.md)

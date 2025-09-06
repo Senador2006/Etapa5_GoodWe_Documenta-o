@@ -1,241 +1,256 @@
-# GoodWe Alexa Skills Integration
+# GoodWe Alexa Skill Integration
 
-Este guia específico mostra como integrar as tecnologias GoodWe (inversores solares, sistemas de armazenamento e dispositivos IoT) com Alexa Skills para criar uma experiência de voz inteligente para gerenciamento de energia solar.
+## 📋 Visão Geral
 
-## 🌞 Visão Geral do Projeto
+Esta seção contém documentação específica para a integração da Alexa Skill com as APIs GoodWe, incluindo configurações detalhadas, exemplos de código e guias de implementação.
 
-### Objetivo
-Criar uma skill Alexa que permita aos usuários:
-- Monitorar produção e consumo de energia solar em tempo real
-- Receber alertas e sugestões proativas sobre gerenciamento energético
-- Controlar dispositivos GoodWe via comandos de voz
-- Otimizar automaticamente o uso de energia
-- Gerenciar situações de emergência energética
+## 🏗️ Estrutura da Integração
 
-### Arquitetura do Sistema
 ```
-Usuário ↔ Alexa Device ↔ Alexa Skills Kit ↔ AWS Lambda ↔ GoodWe APIs
-                                              ↓
-                                          DynamoDB (Cache/Histórico)
-                                              ↓
-                                          CloudWatch (Monitoramento)
-                                              ↓
-                                          SNS (Alertas Proativos)
+GoodWe_AlexaSkill_Integration/
+├── 01-api-integration.md         # Integração com APIs
+├── 02-smart-home-integration.md  # Integração Smart Home
+├── 03-emergency-management.md    # Gerenciamento de emergências
+├── 04-energy-optimization.md     # Otimização energética
+├── 05-complete-implementation.md # Implementação completa
+└── README.md                     # Este arquivo
 ```
 
-## 📋 Estrutura do Guia
+## 🎯 Funcionalidades da Integração
 
-### 1. [Integração com APIs GoodWe](01-api-integration.md)
-- Autenticação com serviços GoodWe
-- Mapeamento de endpoints da API
-- Cache e otimização de dados
-- Tratamento de diferentes tipos de dispositivos
+### APIs Integradas
+- **API Principal GoodWe**: Dados de monitoramento e análises
+- **API Machine Learning**: Predições climáticas e otimizações
+- **APIs Externas**: Serviços de clima e concessionárias
 
-### 2. [Smart Home Integration](02-smart-home-integration.md)
-- Discovery de dispositivos GoodWe
-- Controle via Alexa Smart Home API
-- Implementação de capabilities específicas
-- Cenários automatizados
+### Recursos Smart Home
+- **Descoberta de Dispositivos**: Inversores, baterias, controladores
+- **Controle por Voz**: Comandos de ligar/desligar e configuração
+- **Automações**: Regras baseadas em dados solares
 
-### 3. [Sistema de Alertas e Emergências](03-emergency-management.md)
-- Detecção de situações críticas
-- Sugestões inteligentes para economia
-- Alertas proativos via notificações
-- Planos de contingência automatizados
+### Gerenciamento de Emergências
+- **Alertas Inteligentes**: Notificações baseadas em condições
+- **Modo de Emergência**: Ativação automática de procedimentos
+- **Comunicação**: Notificações para múltiplos canais
 
-### 4. [Otimização Energética](04-energy-optimization.md)
-- Análise de padrões de consumo
-- Sugestões de horários otimizados
-- Previsões baseadas em ML
-- Integração com tarifa dinâmica
+### Otimização Energética
+- **Análises Preditivas**: Previsões de geração e consumo
+- **Recomendações**: Sugestões de otimização
+- **Relatórios**: Análises detalhadas de performance
 
-### 5. [Implementação Completa](05-complete-implementation.md)
-- Estrutura de projeto completa
-- Configuração de ambiente
-- Deploy automatizado
-- Monitoramento e manutenção
-
-## 🎯 Funcionalidades Principais
-
-### 📊 Monitoramento em Tempo Real
-- "Alexa, qual a produção solar atual?"
-- "Alexa, quanto estou consumindo de energia?"
-- "Alexa, qual o status da bateria?"
-
-### ⚠️ Gestão de Emergências
-- "Alexa, estou em risco de falta de energia?"
-- "Alexa, o que posso fazer para economizar energia?"
-- "Alexa, ative o modo de economia de emergência"
-
-### 🔋 Otimização Inteligente
-- "Alexa, quando devo ligar a máquina de lavar?"
-- "Alexa, programe o carregamento do carro elétrico"
-- "Alexa, otimize o uso de energia para hoje"
-
-### 🏠 Controle de Dispositivos
-- "Alexa, ligue o inversor principal"
-- "Alexa, configure a bateria para modo economia"
-- "Alexa, mostre o status de todos os dispositivos"
-
-## 🚀 Quick Start
+## 🚀 Início Rápido
 
 ### Pré-requisitos
-- Conta Amazon Developer
-- Acesso às APIs GoodWe
-- Dispositivos GoodWe configurados
-- AWS Account (Lambda, DynamoDB, CloudWatch)
+- APIs GoodWe rodando (portas 3000 e 8000)
+- Conta Amazon Developer configurada
+- AWS Lambda function criada
+- Variáveis de ambiente configuradas
 
-### Primeiros Passos
-1. **Configure** o ambiente seguindo [API Integration](01-api-integration.md)
-2. **Implemente** a skill básica com [Smart Home Integration](02-smart-home-integration.md)
-3. **Adicione** funcionalidades avançadas com [Emergency Management](03-emergency-management.md)
-4. **Otimize** com [Energy Optimization](04-energy-optimization.md)
-5. **Deploy** usando [Complete Implementation](05-complete-implementation.md)
+### Configuração Básica
+```bash
+# Clonar repositório
+git clone <repository-url>
+cd GoodWe_AlexaSkill_Integration
 
-## 📱 Tipos de Dispositivos Suportados
+# Instalar dependências
+npm install
 
-### Inversores GoodWe
-- Série GW-ES (Sistemas de Armazenamento)
-- Série GW-EH (Híbridos)
-- Série GW-NS (String Inverters)
-- Série GW-MS (Micro Inverters)
+# Configurar variáveis de ambiente
+cp .env.example .env
+# Editar .env com suas configurações
 
-### Sistemas de Armazenamento
-- Lynx Home (Residencial)
-- Lynx Home F (Alta Performance)
-- Sistemas customizados
-
-### Dispositivos IoT
-- Smart Meters
-- Sensores de temperatura
-- Controladores de carga
-- Sistemas de monitoramento
-
-## 🔧 Intents Principais
-
-### Monitoramento
-```javascript
-// GetEnergyStatusIntent
-"Alexa, qual o status de energia?"
-"Alexa, como está a produção solar?"
-"Alexa, mostrar consumo atual"
-
-// GetBatteryStatusIntent  
-"Alexa, qual o nível da bateria?"
-"Alexa, quanto tempo resta de bateria?"
-"Alexa, status do armazenamento"
-
-// GetProductionForecastIntent
-"Alexa, previsão de produção para hoje"
-"Alexa, quanto vou produzir amanhã?"
+# Deploy da skill
+ask deploy
 ```
 
-### Controle
-```javascript
-// OptimizeEnergyIntent
-"Alexa, otimizar uso de energia"
-"Alexa, ativar modo economia"
-"Alexa, configurar carregamento inteligente"
+### Teste Inicial
+```bash
+# Testar skill
+ask simulate --text "qual o status do sistema" --locale pt-BR
 
-// ControlDeviceIntent
-"Alexa, ligar inversor principal"
-"Alexa, desligar sistema de backup"
-"Alexa, configurar modo automático"
+# Verificar logs
+ask get-skill-status
 ```
 
-### Emergências
-```javascript
-// EmergencyModeIntent
-"Alexa, ativar modo de emergência"
-"Alexa, preparar para queda de energia"
-"Alexa, modo sobrevivência"
+## 📚 Documentação por Módulo
 
-// EnergySuggestionsIntent
-"Alexa, como economizar energia?"
-"Alexa, sugestões para hoje"
-"Alexa, o que devo desligar?"
+### 1. Integração com APIs
+- [01-api-integration.md](./01-api-integration.md)
+- Configuração de endpoints
+- Autenticação e segurança
+- Tratamento de erros
+- Cache e otimização
+
+### 2. Smart Home
+- [02-smart-home-integration.md](./02-smart-home-integration.md)
+- Descoberta de dispositivos
+- Controles por voz
+- Automações inteligentes
+- Integração com IoT
+
+### 3. Gerenciamento de Emergências
+- [03-emergency-management.md](./03-emergency-management.md)
+- Sistema de alertas
+- Procedimentos de emergência
+- Notificações automáticas
+- Recuperação de falhas
+
+### 4. Otimização Energética
+- [04-energy-optimization.md](./04-energy-optimization.md)
+- Análises preditivas
+- Recomendações inteligentes
+- Relatórios detalhados
+- Otimização automática
+
+### 5. Implementação Completa
+- [05-complete-implementation.md](./05-complete-implementation.md)
+- Código completo da skill
+- Configurações finais
+- Deploy e testes
+- Monitoramento
+
+## 🔧 Configurações
+
+### Variáveis de Ambiente
+```bash
+# APIs GoodWe
+GOODWE_API_URL=http://localhost:3000
+ML_API_URL=http://localhost:8000
+
+# Autenticação
+GOODWE_API_KEY=your_api_key
+ML_API_KEY=your_ml_key
+
+# Serviços externos
+WEATHER_API_KEY=your_weather_key
+UTILITY_API_KEY=your_utility_key
+
+# Configurações da skill
+SKILL_ID=amzn1.ask.skill.your-skill-id
+LAMBDA_FUNCTION_NAME=GoodWeSolarAssistant
+
+# Debug e logs
+DEBUG=false
+LOG_LEVEL=info
 ```
 
-## 📈 Benefícios da Integração
+### Configuração da Lambda
+```javascript
+// Configuração da função Lambda
+const config = {
+  goodwe: {
+    baseUrl: process.env.GOODWE_API_URL,
+    apiKey: process.env.GOODWE_API_KEY,
+    timeout: 5000
+  },
+  ml: {
+    baseUrl: process.env.ML_API_URL,
+    apiKey: process.env.ML_API_KEY,
+    timeout: 10000
+  },
+  weather: {
+    apiKey: process.env.WEATHER_API_KEY,
+    timeout: 5000
+  }
+};
+```
 
-### Para o Usuário
-- **Conveniência**: Controle por voz natural
-- **Proatividade**: Alertas e sugestões automáticas
-- **Economia**: Otimização inteligente do consumo
-- **Segurança**: Gestão de emergências energéticas
+## 🧪 Testes
 
-### Para GoodWe
-- **Diferenciação**: Primeira integração voice-first do mercado
-- **Engajamento**: Maior interação com os produtos
-- **Dados**: Insights sobre padrões de uso
-- **Inovação**: Posicionamento tecnológico avançado
+### Testes Unitários
+```bash
+# Executar testes
+npm test
 
-## 🛠️ Tecnologias Utilizadas
+# Testes com cobertura
+npm run test:coverage
 
-### Backend
-- **AWS Lambda**: Processamento serverless
-- **DynamoDB**: Cache e histórico de dados
-- **API Gateway**: Interface REST
-- **CloudWatch**: Monitoramento e logs
+# Testes de integração
+npm run test:integration
+```
 
-### Integração
-- **GoodWe API**: Dados dos dispositivos
-- **Alexa Skills Kit**: Interface de voz
-- **Smart Home API**: Controle de dispositivos
-- **Proactive Events API**: Notificações
+### Testes de API
+```bash
+# Testar APIs GoodWe
+curl http://localhost:3000/health
+curl http://localhost:8000/health
 
-### Dados e ML
-- **Amazon Forecast**: Previsões de produção
-- **CloudWatch Insights**: Análise de logs
-- **SNS**: Sistema de notificações
-- **EventBridge**: Orquestração de eventos
+# Testar endpoints específicos
+curl http://localhost:3000/data/paginated?limit=1
+curl -X POST http://localhost:8000/predict -H "Content-Type: application/json" -d '{"temperatura_celsius":25,"umidade_pct":65,"precipitacao_mm_h":10,"vento_kmh":30,"pressao_hpa":1013}'
+```
 
-## 📊 Métricas de Sucesso
+### Testes da Skill
+```bash
+# Simular comandos
+ask simulate --text "qual o status do sistema" --locale pt-BR
+ask simulate --text "quanta energia estou gerando" --locale pt-BR
+ask simulate --text "qual o nível da bateria" --locale pt-BR
 
-### Técnicas
-- Tempo de resposta < 2s
-- Disponibilidade > 99.5%
-- Precisão de previsões > 85%
-- Taxa de sucesso de comandos > 95%
+# Teste de diálogo
+ask dialog --locale pt-BR
+```
 
-### Negócio
-- Engagement diário > 70%
-- Economia média de energia > 15%
-- Satisfação do usuário > 4.5/5
-- Redução de chamados de suporte > 30%
+## 📊 Monitoramento
 
-## 🔄 Roadmap de Desenvolvimento
+### Métricas Importantes
+- **Uptime**: Disponibilidade das APIs
+- **Response Time**: Tempo de resposta
+- **Error Rate**: Taxa de erros
+- **Intent Success**: Taxa de sucesso dos intents
 
-### Fase 1 (4 semanas): MVP
-- [ ] Integração básica com API GoodWe
-- [ ] Skill de monitoramento simples
-- [ ] Comandos básicos de status
+### Logs e Debugging
+- **CloudWatch Logs**: Logs da Lambda
+- **API Logs**: Logs das APIs GoodWe
+- **Debug Mode**: Modo de debug ativado
 
-### Fase 2 (6 semanas): Smart Home
-- [ ] Discovery automático de dispositivos
-- [ ] Controle via Smart Home API
-- [ ] Integração com Alexa App
+### Alertas
+- **API Down**: APIs indisponíveis
+- **High Error Rate**: Taxa de erro alta
+- **Slow Response**: Resposta lenta
+- **Critical Alerts**: Alertas críticos
 
-### Fase 3 (8 semanas): Inteligência
-- [ ] Sistema de alertas proativos
-- [ ] Otimização automática
-- [ ] ML para previsões
+## 🔒 Segurança
 
-### Fase 4 (4 semanas): Avançado
-- [ ] Cenários complexos
-- [ ] Integração com outros sistemas
-- [ ] Dashboard analítico
+### Autenticação
+- **API Keys**: Chaves de API para autenticação
+- **JWT Tokens**: Tokens para sessões
+- **Rate Limiting**: Limitação de requisições
 
-## 📞 Suporte e Contato
+### Privacidade
+- **Dados Criptografados**: Dados em trânsito e em repouso
+- **Logs Anonimizados**: Logs sem dados pessoais
+- **Conformidade LGPD**: Conformidade com a lei brasileira
 
-- **Documentação**: Esta pasta contém todos os guias necessários
-- **Issues**: Use GitHub Issues para reportar problemas
-- **Comunidade**: Participe do Slack #goodwe-alexa
-- **Suporte Técnico**: goodwe-alexa-support@empresa.com
+## 🤝 Contribuição
+
+### Como Contribuir
+1. Fork do repositório
+2. Criar branch para feature
+3. Implementar mudanças
+4. Testes e documentação
+5. Pull request
+
+### Padrões de Código
+- **ESLint**: Linting do código JavaScript
+- **Prettier**: Formatação do código
+- **JSDoc**: Documentação das funções
+- **Commits Semânticos**: Padrão de commits
+
+## 📞 Suporte
+
+### Canais de Suporte
+- **GitHub Issues**: Para bugs e features
+- **Email**: suporte@goodwe-alexa.com
+- **Documentação**: [docs.goodwe-alexa.com](https://docs.goodwe-alexa.com)
+
+### Recursos Adicionais
+- **Documentação Amazon Alexa**: [developer.amazon.com/alexa](https://developer.amazon.com/alexa)
+- **API GoodWe**: [api.goodwe.com/docs](https://api.goodwe.com/docs)
+- **Machine Learning API**: [ml-api.goodwe.com/docs](https://ml-api.goodwe.com/docs)
 
 ---
 
-**Próximo Passo**: Comece com [API Integration](01-api-integration.md) para configurar a base do projeto.
-
----
-**Versão:** 1.0 | **Última atualização:** 2024
+**Versão**: 1.0.0  
+**Última Atualização**: Janeiro 2025  
+**Autor**: Equipe GoodWe Alexa Integration

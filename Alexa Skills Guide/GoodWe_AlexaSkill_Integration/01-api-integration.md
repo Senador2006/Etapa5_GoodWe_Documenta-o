@@ -1,637 +1,981 @@
-# 1. Integração com APIs GoodWe
+# Integração com APIs - GoodWe Alexa Skill
 
-## 🔗 Visão Geral da Integração
+## 📋 Visão Geral
 
-Esta seção detalha como integrar a Alexa Skill com as APIs da GoodWe para acessar dados de inversores solares, sistemas de armazenamento e dispositivos IoT.
+Este documento detalha a integração da Alexa Skill com as APIs GoodWe, incluindo configuração, autenticação, tratamento de erros e otimizações.
 
-## 🏗️ Arquitetura da API
+## 🔌 APIs Integradas
 
-### Endpoints Principais GoodWe
+### 1. API Principal GoodWe
+- **URL**: `http://localhost:3000` (desenvolvimento) / `https://api.goodwe.com` (produção)
+- **Funcionalidades**: Dados de monitoramento, análises estatísticas, busca avançada
+- **Endpoints Principais**: `/data`, `/analytics`, `/search`
+
+### 2. API Machine Learning
+- **URL**: `http://localhost:8000` (desenvolvimento) / `https://ml-api.goodwe.com` (produção)
+- **Funcionalidades**: Predições climáticas, análise de quedas de energia
+- **Endpoints Principais**: `/predict`, `/predict-batch`, `/model-info`
+
+### 3. APIs Externas
+- **Clima**: OpenWeatherMap, AccuWeather
+- **Concessionárias**: APIs de tarifas e horários
+- **IoT**: APIs de dispositivos conectados
+
+## 🛠️ Configuração da Integração
+
+### 1. Configuração Base
+
 ```javascript
-const GOODWE_API_CONFIG = {
-    baseUrl: 'https://www.goodwe-power.com/api',
-    auth: {
-        loginUrl: '/v1/Common/CrossLogin',
-        tokenUrl: '/v1/oauth/token'
-    },
-    devices: {
-        listUrl: '/v1/PowerStationMonitor/GetMonitorDetailByPowerstationId',
-        realtimeUrl: '/v1/PowerStationMonitor/GetRealtimeDataByPowerstationId',
-        historyUrl: '/v1/PowerStationMonitor/GetHistoryDataByPowerstationId'
-    },
-    control: {
-        deviceControlUrl: '/v1/Device/Control',
-        settingsUrl: '/v1/Device/Settings'
-    }
+// config/api-config.js
+const API_CONFIG = {
+  goodwe: {
+    baseUrl: process.env.GOODWE_API_URL || 'http://localhost:3000',
+    apiKey: process.env.GOODWE_API_KEY,
+    timeout: 5000,
+    retries: 3,
+    retryDelay: 1000
+  },
+  ml: {
+    baseUrl: process.env.ML_API_URL || 'http://localhost:8000',
+    apiKey: process.env.ML_API_KEY,
+    timeout: 10000,
+    retries: 2,
+    retryDelay: 2000
+  },
+  weather: {
+    baseUrl: 'https://api.openweathermap.org/data/2.5',
+    apiKey: process.env.WEATHER_API_KEY,
+    timeout: 5000
+  },
+  utility: {
+    baseUrl: process.env.UTILITY_API_URL,
+    apiKey: process.env.UTILITY_API_KEY,
+    timeout: 5000
+  }
 };
 ```
 
-### Estrutura de Autenticação
+### 2. Cliente HTTP Configurado
+
 ```javascript
-class GoodWeAuthService {
-    constructor() {
-        this.baseUrl = process.env.GOODWE_API_BASE_URL;
-        this.clientId = process.env.GOODWE_CLIENT_ID;
-        this.clientSecret = process.env.GOODWE_CLIENT_SECRET;
-        this.accessToken = null;
-        this.refreshToken = null;
-        this.tokenExpiry = null;
-    }
+// utils/http-client.js
+const axios = require('axios');
+const { API_CONFIG } = require('../config/api-config');
 
-    async authenticate(username, password) {
-        try {
-            const loginResponse = await fetch(`${this.baseUrl}/v1/Common/CrossLogin`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    account: username,
-                    pwd: password,
-                    api: 'v1'
-                })
-            });
-
-            const loginData = await loginResponse.json();
-            
-            if (loginData.code !== 0) {
-                throw new Error(`Login failed: ${loginData.msg}`);
-            }
-
-            // Obter token OAuth
-            const tokenResponse = await fetch(`${this.baseUrl}/v1/oauth/token`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded'
-                },
-                body: new URLSearchParams({
-                    grant_type: 'authorization_code',
-                    client_id: this.clientId,
-                    client_secret: this.clientSecret,
-                    code: loginData.data.uid
-                })
-            });
-
-            const tokenData = await tokenResponse.json();
-            
-            this.accessToken = tokenData.access_token;
-            this.refreshToken = tokenData.refresh_token;
-            this.tokenExpiry = Date.now() + (tokenData.expires_in * 1000);
-
-            // Salvar tokens no DynamoDB para persistência
-            await this.saveTokens();
-
-            return this.accessToken;
-            
-        } catch (error) {
-            console.error('Authentication error:', error);
-            throw error;
+class APIClient {
+  constructor(config) {
+    this.client = axios.create({
+      baseURL: config.baseUrl,
+      timeout: config.timeout,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.apiKey}`
+      }
+    });
+    
+    this.setupInterceptors();
+  }
+  
+  setupInterceptors() {
+    // Interceptor de requisição
+    this.client.interceptors.request.use(
+      (config) => {
+        console.log(`[API] ${config.method.toUpperCase()} ${config.url}`);
+        return config;
+      },
+      (error) => {
+        console.error('[API] Request error:', error);
+        return Promise.reject(error);
+      }
+    );
+    
+    // Interceptor de resposta
+    this.client.interceptors.response.use(
+      (response) => {
+        console.log(`[API] ${response.status} ${response.config.url}`);
+        return response;
+      },
+      async (error) => {
+        console.error('[API] Response error:', error.message);
+        
+        // Retry automático para erros de rede
+        if (this.shouldRetry(error)) {
+          return this.retryRequest(error.config);
         }
-    }
-
-    async refreshAccessToken() {
-        if (!this.refreshToken) {
-            throw new Error('No refresh token available');
+        
+        return Promise.reject(error);
+      }
+    );
+  }
+  
+  shouldRetry(error) {
+    return error.code === 'ECONNREFUSED' || 
+           error.code === 'ETIMEDOUT' ||
+           (error.response && error.response.status >= 500);
+  }
+  
+  async retryRequest(config) {
+    const maxRetries = 3;
+    let retryCount = 0;
+    
+    while (retryCount < maxRetries) {
+      try {
+        retryCount++;
+        console.log(`[API] Retry ${retryCount}/${maxRetries} for ${config.url}`);
+        
+        await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+        return await this.client.request(config);
+      } catch (error) {
+        if (retryCount === maxRetries) {
+          throw error;
         }
-
-        try {
-            const response = await fetch(`${this.baseUrl}/v1/oauth/token`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded'
-                },
-                body: new URLSearchParams({
-                    grant_type: 'refresh_token',
-                    refresh_token: this.refreshToken,
-                    client_id: this.clientId,
-                    client_secret: this.clientSecret
-                })
-            });
-
-            const tokenData = await response.json();
-            
-            this.accessToken = tokenData.access_token;
-            this.tokenExpiry = Date.now() + (tokenData.expires_in * 1000);
-
-            await this.saveTokens();
-            return this.accessToken;
-
-        } catch (error) {
-            console.error('Token refresh error:', error);
-            throw error;
-        }
+      }
     }
-
-    async getValidToken() {
-        // Verificar se token ainda é válido
-        if (this.accessToken && Date.now() < this.tokenExpiry - 60000) { // 1 min buffer
-            return this.accessToken;
-        }
-
-        // Tentar renovar token
-        if (this.refreshToken) {
-            return await this.refreshAccessToken();
-        }
-
-        // Reautenticar se necessário
-        throw new Error('Authentication required');
-    }
-
-    async saveTokens() {
-        const AWS = require('aws-sdk');
-        const dynamodb = new AWS.DynamoDB.DocumentClient();
-
-        await dynamodb.put({
-            TableName: 'GoodWeTokens',
-            Item: {
-                service: 'goodwe_api',
-                accessToken: this.accessToken,
-                refreshToken: this.refreshToken,
-                tokenExpiry: this.tokenExpiry,
-                updatedAt: Date.now()
-            }
-        }).promise();
-    }
+  }
 }
+
+// Instâncias dos clientes
+const goodweClient = new APIClient(API_CONFIG.goodwe);
+const mlClient = new APIClient(API_CONFIG.ml);
+const weatherClient = new APIClient(API_CONFIG.weather);
+const utilityClient = new APIClient(API_CONFIG.utility);
+
+module.exports = {
+  goodweClient,
+  mlClient,
+  weatherClient,
+  utilityClient
+};
 ```
 
-## 📊 Classe de Dados de Energia
+## 📊 Integração com API Principal GoodWe
+
+### 1. Dados de Monitoramento
 
 ```javascript
-class GoodWeDataService {
-    constructor(authService) {
-        this.auth = authService;
-        this.baseUrl = process.env.GOODWE_API_BASE_URL;
-        this.cache = new Map();
-        this.CACHE_TTL = 5 * 60 * 1000; // 5 minutos
+// services/goodwe-service.js
+const { goodweClient } = require('../utils/http-client');
+
+class GoodWeService {
+  async getSystemStatus() {
+    try {
+      const response = await goodweClient.client.get('/data/paginated?limit=1');
+      
+      if (!response.data.success) {
+        throw new Error('Falha ao obter dados do sistema');
+      }
+      
+      return this.formatSystemData(response.data.data[0]);
+    } catch (error) {
+      console.error('Erro ao obter status do sistema:', error);
+      throw new Error('Sistema temporariamente indisponível');
     }
-
-    async makeAuthenticatedRequest(endpoint, options = {}) {
-        const token = await this.auth.getValidToken();
-        
-        const response = await fetch(`${this.baseUrl}${endpoint}`, {
-            ...options,
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json',
-                ...options.headers
-            }
-        });
-
-        if (!response.ok) {
-            if (response.status === 401) {
-                // Token expirado, tentar renovar
-                await this.auth.refreshAccessToken();
-                return this.makeAuthenticatedRequest(endpoint, options);
-            }
-            throw new Error(`API request failed: ${response.status}`);
-        }
-
-        return await response.json();
+  }
+  
+  async getEnergyGeneration(timePeriod = 'now') {
+    try {
+      let endpoint = '/data/paginated?limit=1';
+      
+      if (timePeriod !== 'now') {
+        endpoint = '/analytics/hourly';
+      }
+      
+      const response = await goodweClient.client.get(endpoint);
+      return this.formatEnergyData(response.data, timePeriod);
+    } catch (error) {
+      console.error('Erro ao obter dados de geração:', error);
+      throw new Error('Não foi possível obter dados de geração');
     }
-
-    async getDeviceList(userId) {
-        const cacheKey = `devices_${userId}`;
-        const cached = this.getCachedData(cacheKey);
-        
-        if (cached) {
-            return cached;
-        }
-
-        try {
-            const response = await this.makeAuthenticatedRequest(
-                `/v1/PowerStationMonitor/GetPowerStationList`,
-                {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        account: userId,
-                        page_size: 100,
-                        page_index: 1
-                    })
-                }
-            );
-
-            if (response.code !== 0) {
-                throw new Error(`API Error: ${response.msg}`);
-            }
-
-            const devices = response.data.list.map(station => ({
-                id: station.id,
-                name: station.name,
-                type: station.type,
-                capacity: station.capacity,
-                status: station.status,
-                location: {
-                    country: station.country,
-                    city: station.city,
-                    address: station.address
-                },
-                devices: station.devices || []
-            }));
-
-            this.setCachedData(cacheKey, devices);
-            return devices;
-
-        } catch (error) {
-            console.error('Error fetching device list:', error);
-            throw error;
-        }
+  }
+  
+  async getBatteryStatus() {
+    try {
+      const response = await goodweClient.client.get('/data/paginated?limit=1');
+      const data = response.data.data[0];
+      
+      return {
+        level: data.soc_percentage || 0,
+        power: data.battery_power || 0,
+        status: this.getBatteryStatusText(data.soc_percentage, data.battery_power),
+        isCharging: data.battery_power > 0,
+        isDischarging: data.battery_power < 0
+      };
+    } catch (error) {
+      console.error('Erro ao obter status da bateria:', error);
+      throw new Error('Não foi possível obter status da bateria');
     }
-
-    async getRealtimeData(stationId) {
-        const cacheKey = `realtime_${stationId}`;
-        const cached = this.getCachedData(cacheKey, 30000); // Cache mais curto para dados em tempo real
-        
-        if (cached) {
-            return cached;
-        }
-
-        try {
-            const response = await this.makeAuthenticatedRequest(
-                `/v1/PowerStationMonitor/GetRealtimeDataByPowerstationId`,
-                {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        id: stationId
-                    })
-                }
-            );
-
-            if (response.code !== 0) {
-                throw new Error(`API Error: ${response.msg}`);
-            }
-
-            const realtimeData = {
-                timestamp: new Date().toISOString(),
-                production: {
-                    current: response.data.pac || 0, // Potência atual em W
-                    daily: response.data.eday || 0,  // Energia diária em kWh
-                    total: response.data.etotal || 0 // Energia total em kWh
-                },
-                consumption: {
-                    current: response.data.pmeter || 0, // Consumo atual
-                    daily: response.data.eload_day || 0 // Consumo diário
-                },
-                battery: {
-                    soc: response.data.soc || 0,        // State of Charge %
-                    power: response.data.pbat || 0,     // Potência da bateria
-                    voltage: response.data.vbat || 0,   // Voltagem da bateria
-                    status: response.data.battery_status || 'unknown'
-                },
-                grid: {
-                    voltage: response.data.vac1 || 0,   // Voltagem da rede
-                    frequency: response.data.fac1 || 0, // Frequência da rede
-                    power: response.data.pgrid || 0     // Potência da rede
-                },
-                inverter: {
-                    temperature: response.data.tempperature || 0,
-                    status: response.data.status || 'unknown',
-                    efficiency: response.data.efficiency || 0
-                }
-            };
-
-            this.setCachedData(cacheKey, realtimeData, 30000);
-            return realtimeData;
-
-        } catch (error) {
-            console.error('Error fetching realtime data:', error);
-            throw error;
-        }
+  }
+  
+  async getEfficiencyAnalysis(analysisType = 'daily') {
+    try {
+      const endpoint = analysisType === 'daily' 
+        ? '/analytics/hourly' 
+        : '/analytics/trends';
+      
+      const response = await goodweClient.client.get(endpoint, {
+        params: { period: analysisType }
+      });
+      
+      return this.formatEfficiencyData(response.data, analysisType);
+    } catch (error) {
+      console.error('Erro na análise de eficiência:', error);
+      throw new Error('Não foi possível obter análise de eficiência');
     }
-
-    async getHistoricalData(stationId, startDate, endDate, type = 'day') {
-        try {
-            const response = await this.makeAuthenticatedRequest(
-                `/v1/PowerStationMonitor/GetHistoryDataByPowerstationId`,
-                {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        id: stationId,
-                        date: startDate,
-                        date_to: endDate,
-                        type: type // 'day', 'month', 'year'
-                    })
-                }
-            );
-
-            if (response.code !== 0) {
-                throw new Error(`API Error: ${response.msg}`);
-            }
-
-            return response.data.map(item => ({
-                date: item.date,
-                production: item.eday || 0,
-                consumption: item.eload || 0,
-                gridFeedIn: item.grid_feed_in || 0,
-                gridConsumption: item.grid_consumption || 0,
-                batteryCharge: item.battery_charge || 0,
-                batteryDischarge: item.battery_discharge || 0
-            }));
-
-        } catch (error) {
-            console.error('Error fetching historical data:', error);
-            throw error;
-        }
+  }
+  
+  formatSystemData(data) {
+    return {
+      fvPower: data.fv_power || 0,
+      soc: data.soc_percentage || 0,
+      batteryPower: data.battery_power || 0,
+      gridPower: data.grid_power || 0,
+      loadPower: data.load_power || 0,
+      timestamp: data.timestamp,
+      efficiency: this.calculateEfficiency(data)
+    };
+  }
+  
+  formatEnergyData(data, timePeriod) {
+    if (timePeriod === 'now') {
+      return {
+        current: data.data[0].fv_power || 0,
+        unit: 'watts',
+        timestamp: data.data[0].timestamp
+      };
+    } else {
+      return {
+        total: data.total_generation || 0,
+        average: data.average_generation || 0,
+        peak: data.peak_generation || 0,
+        unit: 'watts',
+        period: timePeriod
+      };
     }
-
-    async getEnergyForecast(stationId, days = 7) {
-        // Integração com serviço de previsão baseado em histórico e clima
-        try {
-            const historicalData = await this.getHistoricalData(
-                stationId, 
-                new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-                new Date().toISOString().split('T')[0]
-            );
-
-            // Usar AWS Forecast ou ML simples para previsão
-            const forecast = await this.generateForecast(historicalData, days);
-            
-            return forecast;
-
-        } catch (error) {
-            console.error('Error generating forecast:', error);
-            return null;
-        }
+  }
+  
+  formatEfficiencyData(data, analysisType) {
+    const efficiency = data.efficiency_metrics || {};
+    
+    return {
+      average: efficiency.average || 0,
+      peak: efficiency.peak || 0,
+      low: efficiency.low || 0,
+      trend: data.trends?.efficiency_trend || 'stable',
+      period: analysisType,
+      recommendations: this.generateEfficiencyRecommendations(efficiency)
+    };
+  }
+  
+  getBatteryStatusText(level, power) {
+    if (level > 80) return 'excelente';
+    if (level > 50) return 'boa';
+    if (level > 20) return 'baixa';
+    return 'crítica';
+  }
+  
+  calculateEfficiency(data) {
+    const fvPower = data.fv_power || 0;
+    const loadPower = data.load_power || 0;
+    
+    if (fvPower === 0) return 0;
+    return Math.round((loadPower / fvPower) * 100);
+  }
+  
+  generateEfficiencyRecommendations(efficiency) {
+    const recommendations = [];
+    
+    if (efficiency.average < 60) {
+      recommendations.push('Considere verificar a limpeza dos painéis solares');
     }
-
-    getCachedData(key, customTTL = null) {
-        const cached = this.cache.get(key);
-        const ttl = customTTL || this.CACHE_TTL;
-        
-        if (cached && Date.now() - cached.timestamp < ttl) {
-            return cached.data;
-        }
-        
-        this.cache.delete(key);
-        return null;
+    
+    if (efficiency.peak < 80) {
+      recommendations.push('Verifique se há sombreamento nos painéis');
     }
-
-    setCachedData(key, data, customTTL = null) {
-        const ttl = customTTL || this.CACHE_TTL;
-        this.cache.set(key, {
-            data,
-            timestamp: Date.now()
-        });
-
-        // Limpar cache automaticamente
-        setTimeout(() => {
-            this.cache.delete(key);
-        }, ttl);
+    
+    if (efficiency.average > 85) {
+      recommendations.push('Excelente! Seu sistema está operando com alta eficiência');
     }
+    
+    return recommendations;
+  }
 }
+
+module.exports = new GoodWeService();
 ```
 
-## 🎛️ Controle de Dispositivos
+### 2. Análises e Relatórios
 
 ```javascript
-class GoodWeControlService {
-    constructor(authService) {
-        this.auth = authService;
-        this.baseUrl = process.env.GOODWE_API_BASE_URL;
+// services/analytics-service.js
+const { goodweClient } = require('../utils/http-client');
+
+class AnalyticsService {
+  async getDailyReport(date = null) {
+    try {
+      const targetDate = date || new Date().toISOString().split('T')[0];
+      
+      const response = await goodweClient.client.get('/analytics/daily', {
+        params: { date: targetDate }
+      });
+      
+      return this.formatDailyReport(response.data, targetDate);
+    } catch (error) {
+      console.error('Erro no relatório diário:', error);
+      throw new Error('Não foi possível gerar relatório diário');
     }
-
-    async controlDevice(deviceId, command, parameters = {}) {
-        try {
-            const token = await this.auth.getValidToken();
-            
-            const response = await fetch(`${this.baseUrl}/v1/Device/Control`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    device_id: deviceId,
-                    command: command,
-                    parameters: parameters
-                })
-            });
-
-            const result = await response.json();
-            
-            if (result.code !== 0) {
-                throw new Error(`Control command failed: ${result.msg}`);
-            }
-
-            return result.data;
-
-        } catch (error) {
-            console.error('Device control error:', error);
-            throw error;
-        }
+  }
+  
+  async getWeeklyReport() {
+    try {
+      const response = await goodweClient.client.get('/analytics/trends', {
+        params: { period: 'weekly' }
+      });
+      
+      return this.formatWeeklyReport(response.data);
+    } catch (error) {
+      console.error('Erro no relatório semanal:', error);
+      throw new Error('Não foi possível gerar relatório semanal');
     }
-
-    async setBatteryMode(deviceId, mode) {
-        // Modos: 'auto', 'force_charge', 'force_discharge', 'eco'
-        return await this.controlDevice(deviceId, 'set_battery_mode', {
-            mode: mode
-        });
+  }
+  
+  async getMonthlyReport() {
+    try {
+      const response = await goodweClient.client.get('/analytics/trends', {
+        params: { period: 'monthly' }
+      });
+      
+      return this.formatMonthlyReport(response.data);
+    } catch (error) {
+      console.error('Erro no relatório mensal:', error);
+      throw new Error('Não foi possível gerar relatório mensal');
     }
-
-    async setChargeLimit(deviceId, limit) {
-        // Limite de carregamento da bateria (0-100%)
-        return await this.controlDevice(deviceId, 'set_charge_limit', {
-            limit: Math.max(0, Math.min(100, limit))
-        });
-    }
-
-    async setDischargeLimit(deviceId, limit) {
-        // Limite de descarga da bateria (0-100%)
-        return await this.controlDevice(deviceId, 'set_discharge_limit', {
-            limit: Math.max(0, Math.min(100, limit))
-        });
-    }
-
-    async setLoadPriority(deviceId, priority) {
-        // Prioridade: 'battery_first', 'grid_first', 'pv_first'
-        return await this.controlDevice(deviceId, 'set_load_priority', {
-            priority: priority
-        });
-    }
-
-    async scheduleOperation(deviceId, operation, startTime, endTime) {
-        // Agendar operações automáticas
-        return await this.controlDevice(deviceId, 'schedule_operation', {
-            operation: operation,
-            start_time: startTime,
-            end_time: endTime
-        });
-    }
-
-    async emergencyMode(deviceId, enable = true) {
-        // Ativar/desativar modo de emergência
-        return await this.controlDevice(deviceId, 'emergency_mode', {
-            enabled: enable
-        });
-    }
+  }
+  
+  formatDailyReport(data, date) {
+    const summary = data.summary || {};
+    const generation = data.generation || {};
+    const consumption = data.consumption || {};
+    const efficiency = data.efficiency || {};
+    
+    return {
+      date,
+      totalGeneration: generation.total || 0,
+      totalConsumption: consumption.total || 0,
+      peakGeneration: generation.peak || 0,
+      peakConsumption: consumption.peak || 0,
+      averageEfficiency: efficiency.average || 0,
+      savings: this.calculateSavings(generation.total, consumption.total),
+      recommendations: this.generateDailyRecommendations(data)
+    };
+  }
+  
+  calculateSavings(generation, consumption) {
+    const gridPrice = 0.65; // R$ por kWh
+    const solarPrice = 0.20; // R$ por kWh
+    
+    const solarUsage = Math.min(generation, consumption);
+    const gridUsage = Math.max(0, consumption - generation);
+    
+    const solarCost = solarUsage * solarPrice;
+    const gridCost = gridUsage * gridPrice;
+    const totalSavings = gridCost - solarCost;
+    
+    return {
+      solarUsage,
+      gridUsage,
+      totalSavings: Math.round(totalSavings * 100) / 100,
+      savingsPercentage: Math.round((totalSavings / gridCost) * 100)
+    };
+  }
 }
+
+module.exports = new AnalyticsService();
 ```
 
-## 🔄 Integração com Lambda
+## 🤖 Integração com API Machine Learning
+
+### 1. Predições Climáticas
 
 ```javascript
-// handler principal para skill
-const GoodWeAuthService = require('./services/GoodWeAuthService');
-const GoodWeDataService = require('./services/GoodWeDataService');
-const GoodWeControlService = require('./services/GoodWeControlService');
+// services/ml-service.js
+const { mlClient } = require('../utils/http-client');
 
-// Inicializar serviços
-const authService = new GoodWeAuthService();
-const dataService = new GoodWeDataService(authService);
-const controlService = new GoodWeControlService(authService);
-
-const GetEnergyStatusHandler = {
-    canHandle(handlerInput) {
-        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
-            && Alexa.getIntentName(handlerInput.requestEnvelope) === 'GetEnergyStatusIntent';
-    },
-    async handle(handlerInput) {
-        try {
-            // Obter ID do usuário e mapear para conta GoodWe
-            const userId = handlerInput.requestEnvelope.session.user.userId;
-            const goodweUserId = await getUserGoodWeId(userId);
-            
-            // Buscar dados dos dispositivos
-            const devices = await dataService.getDeviceList(goodweUserId);
-            
-            if (!devices || devices.length === 0) {
-                return handlerInput.responseBuilder
-                    .speak('Não encontrei nenhum dispositivo GoodWe associado à sua conta.')
-                    .getResponse();
-            }
-
-            // Pegar dados em tempo real do primeiro dispositivo (ou principal)
-            const mainStation = devices[0];
-            const realtimeData = await dataService.getRealtimeData(mainStation.id);
-
-            const speakOutput = formatEnergyStatus(realtimeData);
-            
-            return handlerInput.responseBuilder
-                .speak(speakOutput)
-                .withSimpleCard('Status de Energia', speakOutput)
-                .reprompt('Posso ajudar com mais alguma coisa?')
-                .getResponse();
-
-        } catch (error) {
-            console.error('Error in GetEnergyStatusHandler:', error);
-            
-            return handlerInput.responseBuilder
-                .speak('Desculpe, não consegui acessar os dados de energia no momento. Tente novamente em alguns instantes.')
-                .getResponse();
-        }
+class MLService {
+  async getWeatherPrediction(weatherData = null) {
+    try {
+      // Se não fornecido, obter dados climáticos atuais
+      if (!weatherData) {
+        weatherData = await this.getCurrentWeatherData();
+      }
+      
+      const response = await mlClient.client.post('/predict', weatherData);
+      
+      return this.formatPrediction(response.data);
+    } catch (error) {
+      console.error('Erro na predição climática:', error);
+      throw new Error('Não foi possível obter predição climática');
     }
+  }
+  
+  async getBatchPrediction(weatherDataArray) {
+    try {
+      const response = await mlClient.client.post('/predict-batch', weatherDataArray);
+      
+      return response.data.predictions.map(prediction => 
+        this.formatPrediction(prediction)
+      );
+    } catch (error) {
+      console.error('Erro na predição em lote:', error);
+      throw new Error('Não foi possível obter predições em lote');
+    }
+  }
+  
+  async getModelInfo() {
+    try {
+      const response = await mlClient.client.get('/model-info');
+      
+      return {
+        modelType: response.data.model_type,
+        features: response.data.features,
+        accuracy: response.data.accuracy,
+        description: response.data.description
+      };
+    } catch (error) {
+      console.error('Erro ao obter informações do modelo:', error);
+      throw new Error('Não foi possível obter informações do modelo');
+    }
+  }
+  
+  async getCurrentWeatherData() {
+    // Integração com serviço de clima
+    const { weatherClient } = require('../utils/http-client');
+    
+    try {
+      const response = await weatherClient.client.get('/weather', {
+        params: {
+          q: 'São Paulo,BR',
+          appid: process.env.WEATHER_API_KEY,
+          units: 'metric'
+        }
+      });
+      
+      const weather = response.data;
+      
+      return {
+        temperatura_celsius: weather.main.temp,
+        umidade_pct: weather.main.humidity,
+        precipitacao_mm_h: weather.rain ? weather.rain['1h'] || 0 : 0,
+        vento_kmh: weather.wind.speed * 3.6,
+        pressao_hpa: weather.main.pressure
+      };
+    } catch (error) {
+      console.error('Erro ao obter dados climáticos:', error);
+      
+      // Dados padrão em caso de erro
+      return {
+        temperatura_celsius: 25.0,
+        umidade_pct: 65.0,
+        precipitacao_mm_h: 0.0,
+        vento_kmh: 10.0,
+        pressao_hpa: 1013.0
+      };
+    }
+  }
+  
+  formatPrediction(prediction) {
+    return {
+      willOutage: prediction.queda_energia,
+      probability: prediction.probabilidade,
+      probabilityPct: prediction.probabilidade_pct,
+      riskLevel: prediction.nivel_risco,
+      inputData: prediction.dados_entrada,
+      recommendations: this.generateWeatherRecommendations(prediction)
+    };
+  }
+  
+  generateWeatherRecommendations(prediction) {
+    const recommendations = [];
+    const { riskLevel, probability } = prediction;
+    
+    if (riskLevel === 'Crítico') {
+      recommendations.push('Ative o modo de emergência imediatamente');
+      recommendations.push('Verifique se todos os equipamentos estão seguros');
+      recommendations.push('Considere desligar equipamentos não essenciais');
+    } else if (riskLevel === 'Alto') {
+      recommendations.push('Prepare-se para possível interrupção');
+      recommendations.push('Verifique o sistema de backup');
+    } else if (riskLevel === 'Médio') {
+      recommendations.push('Monitore as condições climáticas');
+    } else {
+      recommendations.push('Condições normais, sistema operando normalmente');
+    }
+    
+    return recommendations;
+  }
+}
+
+module.exports = new MLService();
+```
+
+## 🌐 Integração com APIs Externas
+
+### 1. Serviços de Clima
+
+```javascript
+// services/weather-service.js
+const { weatherClient } = require('../utils/http-client');
+
+class WeatherService {
+  async getCurrentWeather(location) {
+    try {
+      const response = await weatherClient.client.get('/weather', {
+        params: {
+          q: location,
+          appid: process.env.WEATHER_API_KEY,
+          units: 'metric',
+          lang: 'pt_br'
+        }
+      });
+      
+      return this.formatWeatherData(response.data);
+    } catch (error) {
+      console.error('Erro ao obter dados climáticos:', error);
+      throw new Error('Não foi possível obter dados climáticos');
+    }
+  }
+  
+  async getWeatherForecast(location, days = 7) {
+    try {
+      const response = await weatherClient.client.get('/forecast', {
+        params: {
+          q: location,
+          appid: process.env.WEATHER_API_KEY,
+          units: 'metric',
+          lang: 'pt_br',
+          cnt: days * 8 // 8 previsões por dia
+        }
+      });
+      
+      return this.formatForecastData(response.data);
+    } catch (error) {
+      console.error('Erro na previsão do tempo:', error);
+      throw new Error('Não foi possível obter previsão do tempo');
+    }
+  }
+  
+  formatWeatherData(data) {
+    return {
+      temperature: Math.round(data.main.temp),
+      humidity: data.main.humidity,
+      pressure: data.main.pressure,
+      windSpeed: Math.round(data.wind.speed * 3.6), // m/s para km/h
+      windDirection: data.wind.deg,
+      description: data.weather[0].description,
+      icon: data.weather[0].icon,
+      visibility: data.visibility / 1000, // m para km
+      cloudiness: data.clouds.all,
+      rain: data.rain ? data.rain['1h'] || 0 : 0,
+      snow: data.snow ? data.snow['1h'] || 0 : 0
+    };
+  }
+  
+  formatForecastData(data) {
+    return data.list.map(item => ({
+      datetime: new Date(item.dt * 1000),
+      temperature: Math.round(item.main.temp),
+      humidity: item.main.humidity,
+      pressure: item.main.pressure,
+      windSpeed: Math.round(item.wind.speed * 3.6),
+      description: item.weather[0].description,
+      icon: item.weather[0].icon,
+      rain: item.rain ? item.rain['3h'] || 0 : 0
+    }));
+  }
+}
+
+module.exports = new WeatherService();
+```
+
+### 2. Concessionárias de Energia
+
+```javascript
+// services/utility-service.js
+const { utilityClient } = require('../utils/http-client');
+
+class UtilityService {
+  async getElectricityRates(region) {
+    try {
+      const response = await utilityClient.client.get('/rates', {
+        params: { region }
+      });
+      
+      return this.formatRatesData(response.data);
+    } catch (error) {
+      console.error('Erro ao obter tarifas:', error);
+      throw new Error('Não foi possível obter tarifas de energia');
+    }
+  }
+  
+  async getTimeOfUseRates() {
+    try {
+      const response = await utilityClient.client.get('/time-of-use');
+      
+      return this.formatTimeOfUseData(response.data);
+    } catch (error) {
+      console.error('Erro ao obter tarifas por horário:', error);
+      throw new Error('Não foi possível obter tarifas por horário');
+    }
+  }
+  
+  async calculateSavings(solarGeneration, consumption, rates) {
+    const savings = {
+      total: 0,
+      breakdown: {
+        peak: 0,
+        offPeak: 0,
+        shoulder: 0
+      },
+      details: []
+    };
+    
+    for (const hour of consumption.hours) {
+      const rate = this.getRateForHour(hour, rates);
+      const solarUsed = Math.min(solarGeneration[hour], consumption[hour]);
+      const gridUsed = Math.max(0, consumption[hour] - solarUsed);
+      
+      const hourSavings = gridUsed * rate.price;
+      savings.total += hourSavings;
+      savings.breakdown[rate.period] += hourSavings;
+      
+      savings.details.push({
+        hour,
+        solarUsed,
+        gridUsed,
+        rate: rate.price,
+        savings: hourSavings
+      });
+    }
+    
+    return savings;
+  }
+  
+  formatRatesData(data) {
+    return {
+      baseRate: data.base_rate,
+      distributionRate: data.distribution_rate,
+      transmissionRate: data.transmission_rate,
+      taxes: data.taxes,
+      totalRate: data.total_rate,
+      currency: data.currency,
+      unit: data.unit
+    };
+  }
+  
+  formatTimeOfUseData(data) {
+    return data.periods.map(period => ({
+      name: period.name,
+      startTime: period.start_time,
+      endTime: period.end_time,
+      rate: period.rate,
+      days: period.days
+    }));
+  }
+  
+  getRateForHour(hour, rates) {
+    // Lógica para determinar a tarifa baseada no horário
+    if (hour >= 6 && hour < 18) {
+      return { period: 'peak', price: rates.peakRate };
+    } else if (hour >= 18 && hour < 22) {
+      return { period: 'shoulder', price: rates.shoulderRate };
+    } else {
+      return { period: 'offPeak', price: rates.offPeakRate };
+    }
+  }
+}
+
+module.exports = new UtilityService();
+```
+
+## 🔄 Cache e Otimização
+
+### 1. Sistema de Cache
+
+```javascript
+// utils/cache-manager.js
+class CacheManager {
+  constructor() {
+    this.cache = new Map();
+    this.defaultTTL = 300000; // 5 minutos
+  }
+  
+  get(key) {
+    const item = this.cache.get(key);
+    
+    if (!item) {
+      return null;
+    }
+    
+    if (Date.now() - item.timestamp > item.ttl) {
+      this.cache.delete(key);
+      return null;
+    }
+    
+    return item.data;
+  }
+  
+  set(key, data, ttl = this.defaultTTL) {
+    this.cache.set(key, {
+      data,
+      timestamp: Date.now(),
+      ttl
+    });
+  }
+  
+  delete(key) {
+    this.cache.delete(key);
+  }
+  
+  clear() {
+    this.cache.clear();
+  }
+  
+  // Cache específico para diferentes tipos de dados
+  getSystemData() {
+    return this.get('system_data');
+  }
+  
+  setSystemData(data) {
+    this.set('system_data', data, 60000); // 1 minuto
+  }
+  
+  getWeatherData() {
+    return this.get('weather_data');
+  }
+  
+  setWeatherData(data) {
+    this.set('weather_data', data, 300000); // 5 minutos
+  }
+  
+  getPredictionData() {
+    return this.get('prediction_data');
+  }
+  
+  setPredictionData(data) {
+    this.set('prediction_data', data, 600000); // 10 minutos
+  }
+}
+
+module.exports = new CacheManager();
+```
+
+### 2. Middleware de Cache
+
+```javascript
+// middleware/cache-middleware.js
+const cacheManager = require('../utils/cache-manager');
+
+const cacheMiddleware = (ttl = 300000) => {
+  return async (req, res, next) => {
+    const cacheKey = `${req.method}:${req.url}:${JSON.stringify(req.query)}`;
+    
+    // Tentar obter do cache
+    const cachedData = cacheManager.get(cacheKey);
+    if (cachedData) {
+      console.log(`[CACHE] Hit for ${cacheKey}`);
+      return res.json(cachedData);
+    }
+    
+    // Interceptar resposta para cachear
+    const originalJson = res.json;
+    res.json = function(data) {
+      cacheManager.set(cacheKey, data, ttl);
+      console.log(`[CACHE] Set for ${cacheKey}`);
+      return originalJson.call(this, data);
+    };
+    
+    next();
+  };
 };
 
-function formatEnergyStatus(data) {
-    const production = Math.round(data.production.current / 1000 * 10) / 10; // kW
-    const consumption = Math.round(data.consumption.current / 1000 * 10) / 10; // kW
-    const batteryLevel = data.battery.soc;
+module.exports = cacheMiddleware;
+```
+
+## 🚨 Tratamento de Erros
+
+### 1. Error Handler Centralizado
+
+```javascript
+// utils/error-handler.js
+class ErrorHandler {
+  static handle(error, context = {}) {
+    console.error(`[ERROR] ${context.operation || 'Unknown'}:`, error);
     
-    let status = `Atualmente você está produzindo ${production} kilowatts de energia solar `;
-    status += `e consumindo ${consumption} kilowatts. `;
+    const errorInfo = {
+      message: error.message,
+      code: error.code,
+      context,
+      timestamp: new Date().toISOString(),
+      stack: error.stack
+    };
     
-    if (batteryLevel > 0) {
-        status += `Sua bateria está em ${batteryLevel}% de carga. `;
+    // Log para CloudWatch
+    this.logToCloudWatch(errorInfo);
+    
+    // Retornar erro amigável para o usuário
+    return this.getUserFriendlyError(error);
+  }
+  
+  static getUserFriendlyError(error) {
+    if (error.code === 'ECONNREFUSED') {
+      return 'Serviço temporariamente indisponível. Tente novamente em alguns minutos.';
     }
     
-    if (production > consumption) {
-        const surplus = Math.round((production - consumption) * 10) / 10;
-        status += `Você tem um excedente de ${surplus} kilowatts que está sendo `;
-        
-        if (batteryLevel < 95) {
-            status += 'usado para carregar a bateria.';
-        } else {
-            status += 'injetado na rede elétrica.';
-        }
-    } else if (consumption > production) {
-        const deficit = Math.round((consumption - production) * 10) / 10;
-        status += `Você está consumindo ${deficit} kilowatts a mais do que está produzindo, `;
-        
-        if (batteryLevel > 20) {
-            status += 'que está sendo suprido pela bateria.';
-        } else {
-            status += 'que está sendo suprido pela rede elétrica.';
-        }
+    if (error.code === 'ETIMEDOUT') {
+      return 'A requisição demorou muito para responder. Tente novamente.';
     }
     
-    return status;
-}
-
-async function getUserGoodWeId(alexaUserId) {
-    // Mapear usuário Alexa para conta GoodWe via DynamoDB
-    const AWS = require('aws-sdk');
-    const dynamodb = new AWS.DynamoDB.DocumentClient();
-    
-    const result = await dynamodb.get({
-        TableName: 'UserGoodWeMapping',
-        Key: { alexaUserId }
-    }).promise();
-    
-    if (!result.Item) {
-        throw new Error('GoodWe account not linked');
+    if (error.response?.status === 401) {
+      return 'Erro de autenticação. Verifique as configurações.';
     }
     
-    return result.Item.goodweUserId;
+    if (error.response?.status === 404) {
+      return 'Recurso não encontrado.';
+    }
+    
+    if (error.response?.status >= 500) {
+      return 'Erro interno do servidor. Tente novamente mais tarde.';
+    }
+    
+    return 'Ocorreu um erro inesperado. Tente novamente.';
+  }
+  
+  static logToCloudWatch(errorInfo) {
+    // Implementar logging para CloudWatch
+    console.log(JSON.stringify({
+      level: 'ERROR',
+      ...errorInfo
+    }));
+  }
 }
+
+module.exports = ErrorHandler;
 ```
 
-## 🔧 Configuração de Ambiente
+### 2. Retry com Circuit Breaker
 
-### Variáveis de Ambiente (Lambda)
-```bash
-GOODWE_API_BASE_URL=https://www.goodwe-power.com/api
-GOODWE_CLIENT_ID=your_client_id
-GOODWE_CLIENT_SECRET=your_client_secret
-LOG_LEVEL=info
-CACHE_TTL=300000
-```
-
-### Estrutura de Tabelas DynamoDB
-
-#### GoodWeTokens
-```json
-{
-    "TableName": "GoodWeTokens",
-    "KeySchema": [
-        {
-            "AttributeName": "service",
-            "KeyType": "HASH"
-        }
-    ],
-    "AttributeDefinitions": [
-        {
-            "AttributeName": "service",
-            "AttributeType": "S"
-        }
-    ]
+```javascript
+// utils/circuit-breaker.js
+class CircuitBreaker {
+  constructor(threshold = 5, timeout = 60000) {
+    this.threshold = threshold;
+    this.timeout = timeout;
+    this.failureCount = 0;
+    this.lastFailureTime = null;
+    this.state = 'CLOSED'; // CLOSED, OPEN, HALF_OPEN
+  }
+  
+  async execute(operation) {
+    if (this.state === 'OPEN') {
+      if (Date.now() - this.lastFailureTime > this.timeout) {
+        this.state = 'HALF_OPEN';
+      } else {
+        throw new Error('Circuit breaker is OPEN');
+      }
+    }
+    
+    try {
+      const result = await operation();
+      this.onSuccess();
+      return result;
+    } catch (error) {
+      this.onFailure();
+      throw error;
+    }
+  }
+  
+  onSuccess() {
+    this.failureCount = 0;
+    this.state = 'CLOSED';
+  }
+  
+  onFailure() {
+    this.failureCount++;
+    this.lastFailureTime = Date.now();
+    
+    if (this.failureCount >= this.threshold) {
+      this.state = 'OPEN';
+    }
+  }
 }
+
+module.exports = CircuitBreaker;
 ```
 
-#### UserGoodWeMapping
-```json
-{
-    "TableName": "UserGoodWeMapping", 
-    "KeySchema": [
-        {
-            "AttributeName": "alexaUserId",
-            "KeyType": "HASH"
-        }
-    ],
-    "AttributeDefinitions": [
-        {
-            "AttributeName": "alexaUserId",
-            "AttributeType": "S"
-        }
-    ]
+## 📊 Monitoramento e Métricas
+
+### 1. Métricas de API
+
+```javascript
+// utils/metrics-collector.js
+class MetricsCollector {
+  constructor() {
+    this.metrics = {
+      requests: 0,
+      errors: 0,
+      responseTimes: [],
+      cacheHits: 0,
+      cacheMisses: 0
+    };
+  }
+  
+  recordRequest(duration, success = true) {
+    this.metrics.requests++;
+    
+    if (!success) {
+      this.metrics.errors++;
+    }
+    
+    this.metrics.responseTimes.push(duration);
+    
+    // Manter apenas os últimos 100 tempos de resposta
+    if (this.metrics.responseTimes.length > 100) {
+      this.metrics.responseTimes.shift();
+    }
+  }
+  
+  recordCacheHit() {
+    this.metrics.cacheHits++;
+  }
+  
+  recordCacheMiss() {
+    this.metrics.cacheMisses++;
+  }
+  
+  getMetrics() {
+    const avgResponseTime = this.metrics.responseTimes.length > 0
+      ? this.metrics.responseTimes.reduce((a, b) => a + b, 0) / this.metrics.responseTimes.length
+      : 0;
+    
+    const errorRate = this.metrics.requests > 0
+      ? (this.metrics.errors / this.metrics.requests) * 100
+      : 0;
+    
+    const cacheHitRate = (this.metrics.cacheHits + this.metrics.cacheMisses) > 0
+      ? (this.metrics.cacheHits / (this.metrics.cacheHits + this.metrics.cacheMisses)) * 100
+      : 0;
+    
+    return {
+      ...this.metrics,
+      avgResponseTime: Math.round(avgResponseTime),
+      errorRate: Math.round(errorRate * 100) / 100,
+      cacheHitRate: Math.round(cacheHitRate * 100) / 100
+    };
+  }
 }
+
+module.exports = new MetricsCollector();
 ```
-
-## ⚡ Próximos Passos
-
-1. **Configure** as credenciais da API GoodWe
-2. **Implemente** os serviços de autenticação e dados
-3. **Teste** a integração com dados reais
-4. **Avance** para [Smart Home Integration](02-smart-home-integration.md)
 
 ---
-**Anterior:** [← README](README.md) | **Próximo:** [Smart Home Integration →](02-smart-home-integration.md)
+
+**Próximo**: [Smart Home Integration](./02-smart-home-integration.md)
